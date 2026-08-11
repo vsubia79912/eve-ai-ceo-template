@@ -162,7 +162,7 @@ export function ModelsSettingsForm() {
           />
         </section>
       ))}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button disabled={saving || models.length === 0 || visibleModelIds.length === 0} onClick={() => void save()}>
           {saving ? "Saving..." : "Save defaults"}
         </Button>

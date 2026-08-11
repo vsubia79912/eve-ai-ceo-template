@@ -12,7 +12,7 @@ export default async function TaskDetailPage({ params }: { readonly params: Prom
   } catch {
     notFound();
   }
-  const { task, events } = data;
+  const { task, events, latestMergeAttempt } = data;
   return (
     <main className="mx-auto w-full max-w-5xl overflow-y-auto px-6 py-10">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -47,6 +47,20 @@ export default async function TaskDetailPage({ params }: { readonly params: Prom
       ) : null}
       {task.blockingQuestion ? <section className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-5"><h2 className="font-medium">Blocking question</h2><pre className="mt-3 whitespace-pre-wrap text-sm">{JSON.stringify(task.blockingQuestion, null, 2)}</pre></section> : null}
       {task.prUrl ? <a className="mt-6 inline-flex text-sm font-medium underline underline-offset-4" href={task.prUrl} rel="noreferrer" target="_blank">Open draft PR #{task.prNumber}</a> : null}
+      {latestMergeAttempt ? (
+        <section className="mt-6 rounded-xl border border-border p-5">
+          <h2 className="font-medium">Latest merge attempt</h2>
+          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            <Fact label="Status" value={latestMergeAttempt.status.replaceAll("_", " ")} />
+            <Fact label="Head SHA" value={latestMergeAttempt.headSha ?? "Pending"} mono />
+            <Fact label="Merge commit" value={latestMergeAttempt.mergeCommitSha ?? "Pending"} mono />
+          </dl>
+          {latestMergeAttempt.error ? <p className="mt-3 text-sm text-destructive">{latestMergeAttempt.error}</p> : null}
+          {latestMergeAttempt.mergeCommitSha ? (
+            <a className="mt-3 inline-flex text-sm font-medium underline underline-offset-4" href={`https://github.com/${task.repository}/commit/${latestMergeAttempt.mergeCommitSha}`} rel="noreferrer" target="_blank">Open merge commit</a>
+          ) : null}
+        </section>
+      ) : null}
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Event timeline</h2>
         <ol className="mt-5 border-l border-border pl-5">

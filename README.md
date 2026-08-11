@@ -66,7 +66,9 @@ destroying anything. CEO persists a decision and messages the same Engineering
   strategically significant ambiguity that cannot safely be inferred.
 
 The CEO never edits application code. Engineering never contacts the owner
-directly. The system never merges or deploys.
+directly. Deployment is never automated. Squash merging is available only for
+Eve-created PRs after the owner enables project automation and explicitly asks
+to merge that exact PR in the current chat turn.
 
 ## Safety boundaries
 
@@ -86,8 +88,9 @@ directly. The system never merges or deploys.
   `lint`, `build`, and `check` commands.
 - Repair, review, follow-up, and wall-clock loops are bounded by environment
   configuration.
-- PRs are drafts. Automatic merge and automatic production deployment are not
-  implemented.
+- PRs are drafts. Owner-requested merge automation is disabled by default and
+  remains gated by exact-SHA verification, reviewer PASS, GitHub checks, and
+  project ownership. Automatic production deployment is not implemented.
 
 ## Setup
 

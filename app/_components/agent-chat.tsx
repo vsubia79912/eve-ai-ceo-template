@@ -36,7 +36,7 @@ import { IntegrationsMenu } from "@/components/chat/integrations-menu";
 import { AgentMessage } from "@/components/chat/message";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { isChatSessionBoundaryEvent, isChatTurnTerminalEvent } from "@/lib/chat/events";
+import { hasOpenChatTurn, isChatSessionBoundaryEvent } from "@/lib/chat/events";
 import { getChatMessageLengthError } from "@/lib/chat/limits";
 import {
   appendClientChatEvent,
@@ -542,20 +542,6 @@ function reduceEventsToMessageData(
   return data;
 }
 
-function hasOpenChatTurn(events: readonly MessageStreamEvent[]) {
-  let open = false;
-
-  for (const event of events) {
-    if (event.type === "turn.started") {
-      open = true;
-    } else if (isChatTurnTerminalEvent(event)) {
-      open = false;
-    }
-  }
-
-  return open;
-}
-
 function namespaceStreamEvent(
   event: MessageStreamEvent,
   namespace: string | undefined,
@@ -891,7 +877,7 @@ export function AgentChatSession({
 
   const hasResumeOverlay = isResuming || (resumedEvents.length > 0 && streamEvents.length === 0);
   const resumedEventLog = useMemo(
-    () => [...(activeChat?.events ?? []), ...resumedEvents],
+    () => mergeStreamEventLogs(activeChat?.events ?? [], resumedEvents),
     [activeChat?.events, resumedEvents],
   );
   const agentEventLog = useMemo(
@@ -1391,7 +1377,8 @@ export function AgentChatSession({
             event,
             activeChat.session?.sessionId,
           );
-          const nextEvents = [...resumedEventsRef.current, displayEvent];
+          const nextEvents = appendUniqueStreamEvent(resumedEventsRef.current, displayEvent);
+          if (nextEvents === resumedEventsRef.current) continue;
           resumedEventsRef.current = nextEvents;
           setResumedEvents(nextEvents);
 

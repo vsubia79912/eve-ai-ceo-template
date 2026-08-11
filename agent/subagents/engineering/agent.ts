@@ -4,7 +4,7 @@ import { resolveModelAttribute } from "@/lib/models";
 
 export default defineAgent({
   description:
-    "Own software-development tasks end-to-end: run Codex CLI in a persistent Vercel Sandbox, resolve technical choices, escalate product ambiguity, verify, review, and create a draft GitHub PR.",
+    "Own software-development tasks end-to-end and process durable owner-authorized merge attempts: run Codex in an isolated sandbox, verify, review, create draft PRs, and perform gated squash merges without deploying.",
   experimental: { subagentPersistentSessions: true },
   limits: {
     maxInputTokensPerSession: 300_000,

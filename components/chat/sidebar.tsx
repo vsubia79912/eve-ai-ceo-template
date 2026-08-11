@@ -4,6 +4,7 @@ import {
   ArrowRightIcon,
   BriefcaseBusinessIcon,
   SettingsIcon,
+  GitPullRequestArrowIcon,
   EllipsisIcon,
   PanelLeftIcon,
   PlusIcon,
@@ -146,6 +147,13 @@ export function ChatSidebar({
         >
           <SettingsIcon className="size-4" />
           Model settings
+        </Link>
+        <Link
+          className="flex h-8 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+          href="/settings/automation"
+        >
+          <GitPullRequestArrowIcon className="size-4" />
+          Automation settings
         </Link>
       </div>
 

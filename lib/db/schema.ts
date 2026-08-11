@@ -136,6 +136,8 @@ export const project = pgTable(
     ownerId: text("owner_id").notNull(),
     name: text("name").notNull(),
     repository: text("repository"),
+    mergeMode: text("merge_mode").notNull().default("disabled"),
+    mergeMethod: text("merge_method").notNull().default("squash"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -171,6 +173,8 @@ export const task = pgTable(
     error: text("error"),
     prUrl: text("pr_url"),
     prNumber: integer("pr_number"),
+    publishedBaseSha: text("published_base_sha"),
+    publishedHeadSha: text("published_head_sha"),
     repairAttempts: integer("repair_attempts").notNull().default(0),
     reviewAttempts: integer("review_attempts").notNull().default(0),
     codexFollowups: integer("codex_followups").notNull().default(0),
@@ -188,6 +192,42 @@ export const task = pgTable(
   (table) => [
     index("idx_task_project_updated").on(table.projectId, table.updatedAt),
     index("idx_task_status_updated").on(table.status, table.updatedAt),
+  ],
+);
+
+export const mergeAttemptStatus = pgEnum("merge_attempt_status", [
+  "REQUESTED",
+  "REVIEWING",
+  "CHECKS_PENDING",
+  "MERGING",
+  "MERGED",
+  "FAILED",
+]);
+
+export const mergeAttempt = pgTable(
+  "merge_attempt",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => task.id, { onDelete: "cascade" }),
+    requestedBy: text("requested_by").notNull(),
+    prNumber: integer("pr_number").notNull(),
+    prUrl: text("pr_url").notNull(),
+    status: mergeAttemptStatus("status").notNull().default("REQUESTED"),
+    baseSha: text("base_sha"),
+    headSha: text("head_sha"),
+    verification: jsonb("verification").$type<unknown>(),
+    review: jsonb("review").$type<unknown>(),
+    error: text("error"),
+    mergeCommitSha: text("merge_commit_sha"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    completedAt: timestamp("completed_at"),
+  },
+  (table) => [
+    index("idx_merge_attempt_task_created").on(table.taskId, table.createdAt),
+    index("idx_merge_attempt_status_updated").on(table.status, table.updatedAt),
   ],
 );
 
@@ -246,5 +286,6 @@ export type ChatEvent = typeof chatEvent.$inferSelect;
 export type UserModelSettings = typeof userModelSettings.$inferSelect;
 export type CompanyTask = typeof task.$inferSelect;
 export type CompanyTaskEvent = typeof taskEvent.$inferSelect;
+export type MergeAttempt = typeof mergeAttempt.$inferSelect;
 export type Decision = typeof decision.$inferSelect;
 export type User = typeof user.$inferSelect;

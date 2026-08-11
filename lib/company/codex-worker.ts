@@ -2,6 +2,7 @@ import type { SandboxSession } from "eve/sandbox";
 import { companyConfig, getAiGatewayCredential, getGitHubToken } from "@/lib/company/config";
 import { parseGitHubRepository, validateGitRef } from "@/lib/company/repository";
 import { addTaskEvent, getCompanyTask, updateCompanyTask } from "@/lib/company/store";
+import { codexBaseConfig, codexCompanyProfile } from "@/lib/company/policies";
 
 const WORKSPACE = "/workspace/repository";
 const COMPANY_HOME = "/workspace/.company";
@@ -68,10 +69,6 @@ const resultSchema = {
   },
 };
 
-function gatewayConfig(modelId: string) {
-  return `profile = "company"\n\n[model_providers.vercel]\nname = "Vercel AI Gateway"\nbase_url = "https://ai-gateway.vercel.sh/v1"\nenv_key = "AI_GATEWAY_API_KEY"\nwire_api = "chat"\n\n[profiles.company]\nmodel_provider = "vercel"\nmodel = "${modelId}"\n`;
-}
-
 async function codexEnvironment() {
   return {
     AI_GATEWAY_API_KEY: await getAiGatewayCredential(),
@@ -79,7 +76,7 @@ async function codexEnvironment() {
   };
 }
 
-function gitAuthEnvironment(token: string) {
+export function gitAuthEnvironment(token: string) {
   return {
     GIT_CONFIG_COUNT: "1",
     GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
@@ -132,7 +129,11 @@ export async function startCodexTask(sandbox: SandboxSession, taskId: string) {
   const workingBranch = validateGitRef(task.workingBranch ?? "", "Working branch");
 
   const codexModel = task.effectiveModels?.codex ?? companyConfig.models.codex;
-  await sandbox.writeTextFile({ path: `${CODEX_HOME}/config.toml`, content: gatewayConfig(codexModel) });
+  await sandbox.writeTextFile({ path: `${CODEX_HOME}/config.toml`, content: codexBaseConfig() });
+  await sandbox.writeTextFile({
+    path: `${CODEX_HOME}/company.config.toml`,
+    content: codexCompanyProfile(codexModel),
+  });
   await sandbox.writeTextFile({ path: RESULT_SCHEMA, content: JSON.stringify(resultSchema, null, 2) });
   await sandbox.writeTextFile({ path: `${COMPANY_HOME}/initial-prompt.txt`, content: initialPrompt(task) });
 
@@ -181,7 +182,7 @@ export async function resumeCodexTask(sandbox: SandboxSession, taskId: string, i
     codingRunId: task.codingRunId,
     followup: task.codexFollowups + 1,
   });
-  const command = `timeout ${companyConfig.limits.maxTaskRuntimeMinutes}m codex exec resume ${task.codingRunId} --json --output-schema ${RESULT_SCHEMA} --output-last-message ${LAST_MESSAGE} --dangerously-bypass-approvals-and-sandbox - < ${COMPANY_HOME}/followup-prompt.txt`;
+  const command = `timeout ${companyConfig.limits.maxTaskRuntimeMinutes}m codex exec --profile company resume ${task.codingRunId} --json --output-schema ${RESULT_SCHEMA} --output-last-message ${LAST_MESSAGE} --dangerously-bypass-approvals-and-sandbox - < ${COMPANY_HOME}/followup-prompt.txt`;
   const run = await sandbox.run({ command, env: await codexEnvironment(), workingDirectory: WORKSPACE });
   if (run.exitCode !== 0) throw new Error(`Codex resume exited with ${run.exitCode}: ${run.stderr}`);
   return {
@@ -204,6 +205,17 @@ export async function workspaceSnapshot(sandbox: SandboxSession) {
 
 const SAFE_VERIFICATION = /^(?:corepack\s+)?(?:pnpm|npm|yarn|bun|npx)\s+(?:run\s+)?(?:test|typecheck|lint|build|check)(?:\s|$)/;
 
+export function validateVerificationCommand(command: string) {
+  const value = command.trim();
+  if (!SAFE_VERIFICATION.test(value)) {
+    const prefix = /^(?:cd\s+|[^&]+&&)/.test(value)
+      ? "Pass only the bare package command; the worker already uses the repository directory. "
+      : "";
+    throw new Error(`${prefix}Verification command is outside the allowed command set: ${command}`);
+  }
+  return value;
+}
+
 export async function runVerification(
   sandbox: SandboxSession,
   taskId: string,
@@ -222,13 +234,8 @@ export async function runVerification(
     commands,
   });
   for (const command of commands) {
-    if (!SAFE_VERIFICATION.test(command.trim())) {
-      const prefix = /^(?:cd\s+|[^&]+&&)/.test(command.trim())
-        ? "Pass only the bare package command; the worker already uses the repository directory. "
-        : "";
-      throw new Error(`${prefix}Verification command is outside the allowed command set: ${command}`);
-    }
-    const result = await sandbox.run({ command, workingDirectory: WORKSPACE });
+    const validatedCommand = validateVerificationCommand(command);
+    const result = await sandbox.run({ command: validatedCommand, workingDirectory: WORKSPACE });
     results.push({
       command,
       exitCode: result.exitCode,
@@ -290,14 +297,20 @@ export async function publishPullRequest(sandbox: SandboxSession, taskId: string
     },
     body: JSON.stringify({
       base: baseBranch,
-      body: `## Summary\n\n${typeof task.result === "object" ? JSON.stringify(task.result, null, 2) : task.description}\n\n## Verification\n\n${JSON.stringify(task.verification, null, 2)}\n\nCreated autonomously by eve Engineering. No automatic merge or deployment is configured.`,
+      body: `## Summary\n\n${typeof task.result === "object" ? JSON.stringify(task.result, null, 2) : task.description}\n\n## Verification\n\n${JSON.stringify(task.verification, null, 2)}\n\nCreated autonomously by eve Engineering. Merge requires an explicit owner request and enabled project automation. Deployment remains separate.`,
       draft: true,
       head: branch,
       title: task.title,
     }),
   });
-  const payload = (await response.json()) as { html_url?: string; number?: number; message?: string };
-  if (!response.ok || !payload.html_url || !payload.number) {
+  const payload = (await response.json()) as {
+    base?: { sha?: string };
+    head?: { sha?: string };
+    html_url?: string;
+    message?: string;
+    number?: number;
+  };
+  if (!response.ok || !payload.html_url || !payload.number || !payload.base?.sha || !payload.head?.sha) {
     throw new Error(`GitHub PR creation failed: ${payload.message ?? response.statusText}`);
   }
   await updateCompanyTask(taskId, {
@@ -305,6 +318,8 @@ export async function publishPullRequest(sandbox: SandboxSession, taskId: string
     currentStage: "completed",
     prNumber: payload.number,
     prUrl: payload.html_url,
+    publishedBaseSha: payload.base.sha,
+    publishedHeadSha: payload.head.sha,
     status: "COMPLETED",
   });
   await addTaskEvent(taskId, "PR_CREATED", `Created draft PR #${payload.number}.`, {

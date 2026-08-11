@@ -20,5 +20,14 @@ export function isChatSessionBoundaryEvent(event: MessageStreamEvent) {
   );
 }
 
+export function hasOpenChatTurn(events: readonly MessageStreamEvent[]) {
+  let open = false;
+  for (const event of events) {
+    if (event.type === "turn.started") open = true;
+    else if (isChatTurnTerminalEvent(event)) open = false;
+  }
+  return open;
+}
+
 /** @deprecated Use the explicit turn or session predicate. */
 export const isChatTurnSettledEvent = isChatTurnTerminalEvent;

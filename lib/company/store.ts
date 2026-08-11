@@ -3,6 +3,7 @@ import { and, desc, eq, ilike, or } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   decision,
+  mergeAttempt,
   project,
   task,
   taskEvent,
@@ -117,12 +118,20 @@ export async function listTasks(limit = 50) {
 
 export async function getTaskWithTimeline(taskId: string) {
   const row = await getCompanyTask(taskId);
-  const events = await db
-    .select()
-    .from(taskEvent)
-    .where(eq(taskEvent.taskId, taskId))
-    .orderBy(taskEvent.createdAt);
-  return { events, task: row };
+  const [events, [latestMergeAttempt]] = await Promise.all([
+    db
+      .select()
+      .from(taskEvent)
+      .where(eq(taskEvent.taskId, taskId))
+      .orderBy(taskEvent.createdAt),
+    db
+      .select()
+      .from(mergeAttempt)
+      .where(eq(mergeAttempt.taskId, taskId))
+      .orderBy(desc(mergeAttempt.createdAt))
+      .limit(1),
+  ]);
+  return { events, latestMergeAttempt: latestMergeAttempt ?? null, task: row };
 }
 
 export async function recordCompanyDecision(input: {
@@ -195,5 +204,7 @@ export function taskPublicView(row: CompanyTask) {
     error: row.error,
     prUrl: row.prUrl,
     prNumber: row.prNumber,
+    publishedBaseSha: row.publishedBaseSha,
+    publishedHeadSha: row.publishedHeadSha,
   };
 }

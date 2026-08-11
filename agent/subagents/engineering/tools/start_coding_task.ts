@@ -2,12 +2,25 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { startCodexTask } from "@/lib/company/codex-worker";
 import { addTaskEvent, getCompanyTask, taskPublicView, updateCompanyTask } from "@/lib/company/store";
+import { codingTaskStartBlocker } from "@/lib/company/policies";
 
 export default defineTool({
   description: "Start Codex once for a persisted task in this Engineering session's durable sandbox.",
   inputSchema: z.object({ taskId: z.string().uuid() }),
   async execute({ taskId }, ctx) {
     const before = await getCompanyTask(taskId);
+    const blocker = codingTaskStartBlocker(before);
+    if (blocker === "failed") {
+      return {
+        error: before.error ?? "Codex failed to start.",
+        ok: false as const,
+        task: taskPublicView(before),
+        terminal: true as const,
+      };
+    }
+    if (blocker === "already_started") {
+      throw new Error(`Task cannot start from ${before.status}; start_coding_task is single-use.`);
+    }
     if (before.codingRunId) throw new Error("This task already has a Codex run; use continue_coding_task.");
     await updateCompanyTask(taskId, {
       currentStage: "sandbox_setup",
@@ -49,17 +62,23 @@ export default defineTool({
       if (run.result.status === "failed") {
         throw new Error(`Codex reported failure: ${run.result.summary}`);
       }
-      return { codex: run.result, eventCount: run.eventCount, task: taskPublicView(updated) };
+      return { codex: run.result, eventCount: run.eventCount, ok: true as const, task: taskPublicView(updated) };
     } catch (error) {
-      await updateCompanyTask(taskId, {
+      const message = error instanceof Error ? error.message : String(error);
+      const failed = await updateCompanyTask(taskId, {
         currentStage: "failed",
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
         status: "FAILED",
       });
       await addTaskEvent(taskId, "TASK_FAILED", "Codex task start failed.", {
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
       });
-      throw error;
+      return {
+        error: message,
+        ok: false as const,
+        task: taskPublicView(failed),
+        terminal: true as const,
+      };
     }
   },
 });

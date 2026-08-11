@@ -306,6 +306,38 @@ export async function getChatRuntimeContext(chatId: string, userId: string) {
   return { chat: row, settings: await getUserModelSettings(userId) };
 }
 
+export async function getLatestReceivedUserMessage(chatId: string, userId: string) {
+  const [ownedChat] = await db
+    .select({ id: chat.id })
+    .from(chat)
+    .where(and(eq(chat.id, chatId), eq(chat.userId, userId)))
+    .limit(1);
+  if (!ownedChat) throw new Error("Chat not found for the authenticated owner.");
+
+  const rows = await db
+    .select({ event: chatEvent.event })
+    .from(chatEvent)
+    .where(eq(chatEvent.chatId, chatId))
+    .orderBy(desc(chatEvent.eventIndex))
+    .limit(50);
+  for (const row of rows) {
+    if (row.event.type !== "message.received") continue;
+    const data = row.event.data as Record<string, unknown>;
+    if (typeof data.message === "string") return data.message;
+    if (typeof data.text === "string") return data.text;
+    const parts = Array.isArray(data.parts) ? data.parts : [];
+    const text = parts
+      .flatMap((part) =>
+        part && typeof part === "object" && "text" in part && typeof part.text === "string"
+          ? [part.text]
+          : [],
+      )
+      .join("\n");
+    if (text) return text;
+  }
+  return null;
+}
+
 export async function persistServerChatEvent(input: {
   readonly chatId: string;
   readonly event: MessageStreamEvent;
