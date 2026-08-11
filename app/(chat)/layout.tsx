@@ -5,6 +5,8 @@ import { listChatsPageByUser } from "@/lib/db/queries";
 import { getServerViewer } from "@/lib/session";
 import { getInitialSetupStatus, getSetupStatus } from "@/lib/setup";
 
+export const instant = false;
+
 export default function ChatLayout({ children }: { readonly children: ReactNode }) {
   const setupStatus = getInitialSetupStatus();
 

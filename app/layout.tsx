@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import type { ReactNode } from "react";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
@@ -30,14 +30,18 @@ function resolveMetadataBase() {
   return new URL(configuredUrl.startsWith("http") ? configuredUrl : `https://${configuredUrl}`);
 }
 
-const geistSans = Geist({
-  subsets: ["latin"],
+const geistSans = localFont({
+  src: "./fonts/geist-sans.woff2",
+  display: "swap",
   variable: "--font-geist-sans",
+  weight: "100 900",
 });
 
-const geistMono = Geist_Mono({
-  subsets: ["latin"],
+const geistMono = localFont({
+  src: "./fonts/geist-mono.woff2",
+  display: "swap",
   variable: "--font-geist-mono",
+  weight: "100 900",
 });
 
 export const metadata: Metadata = {
