@@ -242,7 +242,7 @@ export async function runVerification(
 export async function publishPullRequest(sandbox: SandboxSession, taskId: string) {
   const task = await getCompanyTask(taskId);
   const repository = parseGitHubRepository(task.repository);
-  const token = getGitHubToken();
+  const token = await getGitHubToken();
   if (!task.workingBranch) throw new Error("Task has no working branch.");
   const branch = validateGitRef(task.workingBranch, "Working branch");
   const baseBranch = validateGitRef(task.baseBranch, "Base branch");

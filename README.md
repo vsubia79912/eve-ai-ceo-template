@@ -129,8 +129,10 @@ Autonomous coding:
 ```text
 VERCEL_OIDC_TOKEN              # automatically managed by Vercel
 AI_GATEWAY_API_KEY             # optional non-Vercel fallback
-GITHUB_APP_INSTALLATION_TOKEN   # preferred short-lived credential
-# or GITHUB_TOKEN               # local prototype fallback
+GITHUB_APP_ID
+GITHUB_APP_INSTALLATION_ID
+GITHUB_APP_PRIVATE_KEY
+# or GITHUB_APP_INSTALLATION_TOKEN / GITHUB_TOKEN for local prototypes
 ```
 
 Vercel Sandbox uses project OIDC automatically on Vercel. For local development,
