@@ -74,8 +74,9 @@ directly. The system never merges or deploys.
   Next.js application host.
 - Sandbox egress is allow-listed to AI Gateway, GitHub, and npm infrastructure;
   private/link-local subnets are denied.
-- `AI_GATEWAY_API_KEY` is passed only to Codex command processes through the
-  sandbox environment API. GitHub credentials are passed only to clone/push
+- The short-lived Vercel OIDC token (or an optional `AI_GATEWAY_API_KEY`
+  fallback) is passed only to Codex command processes through the sandbox
+  environment API. GitHub credentials are passed only to clone/push
   commands and are not included in Codex's environment.
 - Only GitHub `owner/repository` or HTTPS GitHub repository inputs are accepted;
   git refs are validated.
@@ -91,7 +92,7 @@ directly. The system never merges or deploys.
 ## Setup
 
 Prerequisites: Node.js 24+, Corepack/pnpm, Vercel CLI, a Vercel project, Neon,
-Upstash Redis, an AI Gateway key, and a least-privilege GitHub App installation.
+Upstash Redis, Vercel OIDC, and a least-privilege GitHub App installation.
 
 ```bash
 corepack enable
@@ -126,7 +127,8 @@ UPSTASH_REDIS_REST_TOKEN
 Autonomous coding:
 
 ```text
-AI_GATEWAY_API_KEY
+VERCEL_OIDC_TOKEN              # automatically managed by Vercel
+AI_GATEWAY_API_KEY             # optional non-Vercel fallback
 GITHUB_APP_INSTALLATION_TOKEN   # preferred short-lived credential
 # or GITHUB_TOKEN               # local prototype fallback
 ```

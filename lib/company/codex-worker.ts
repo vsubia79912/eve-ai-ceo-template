@@ -1,5 +1,5 @@
 import type { SandboxSession } from "eve/sandbox";
-import { companyConfig, getAiGatewayKey, getGitHubToken } from "@/lib/company/config";
+import { companyConfig, getAiGatewayCredential, getGitHubToken } from "@/lib/company/config";
 import { parseGitHubRepository, validateGitRef } from "@/lib/company/repository";
 import { addTaskEvent, getCompanyTask, updateCompanyTask } from "@/lib/company/store";
 
@@ -74,7 +74,7 @@ function gatewayConfig() {
 
 function codexEnvironment() {
   return {
-    AI_GATEWAY_API_KEY: getAiGatewayKey(),
+    AI_GATEWAY_API_KEY: getAiGatewayCredential(),
     CODEX_HOME,
   };
 }

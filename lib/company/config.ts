@@ -24,12 +24,15 @@ export function requireCompanyDatabase() {
   }
 }
 
-export function getAiGatewayKey() {
-  const key = process.env.AI_GATEWAY_API_KEY?.trim();
-  if (!key) {
-    throw new Error("AI_GATEWAY_API_KEY is required to run Codex through Vercel AI Gateway.");
+export function getAiGatewayCredential() {
+  const credential =
+    process.env.AI_GATEWAY_API_KEY?.trim() ?? process.env.VERCEL_OIDC_TOKEN?.trim();
+  if (!credential) {
+    throw new Error(
+      "VERCEL_OIDC_TOKEN (preferred) or AI_GATEWAY_API_KEY is required to run Codex through Vercel AI Gateway.",
+    );
   }
-  return key;
+  return credential;
 }
 
 export function getGitHubToken() {
