@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { GatewayModel } from "@/lib/chat/types";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { formatAverageModelPrice } from "@/lib/models";
 
 export function ModelSelect({
   disabled,
@@ -21,11 +22,10 @@ export function ModelSelect({
   const [query, setQuery] = useState("");
   const visible = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    const filtered = normalized
+    return normalized
       ? models.filter((model) => `${model.name} ${model.id} ${model.provider}`.toLowerCase().includes(normalized))
       : models;
-    return searchable ? filtered : filtered.filter((model) => model.recommended);
-  }, [models, query, searchable]);
+  }, [models, query]);
 
   return (
     <div className="space-y-2">
@@ -42,7 +42,7 @@ export function ModelSelect({
         <SelectContent>
           {visible.map((model) => (
             <SelectItem key={model.id} value={model.id}>
-              {model.name} · {model.provider}
+              {model.name} · {model.provider} · {formatAverageModelPrice(model.pricing)}
             </SelectItem>
           ))}
         </SelectContent>

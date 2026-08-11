@@ -17,7 +17,13 @@ import {
   writePendingChatMessage,
 } from "@/lib/chat/provisional-chat";
 import type { GatewayModel, ModelSettings, SetupStatus } from "@/lib/chat/types";
-import { DEFAULT_MODEL_SETTINGS } from "@/lib/models";
+import {
+  DEFAULT_MODEL_SETTINGS,
+  DEFAULT_VISIBLE_MODEL_IDS,
+  MODEL_SETTINGS_STORAGE_KEY,
+  modelsForNewSession,
+  VISIBLE_MODELS_STORAGE_KEY,
+} from "@/lib/models";
 
 const IDLE_CONTROLLER_STATUS: AgentChatControllerStatus = {
   isBusy: false,
@@ -74,13 +80,27 @@ export function HomeChatPage() {
       .then(async ([catalog, preferences]) => {
         if (!catalog.ok || !preferences.ok) return;
         const catalogData = await catalog.json() as { models: GatewayModel[] };
-        const preferencesData = await preferences.json() as { settings: ModelSettings; storageMode: string };
+        const preferencesData = await preferences.json() as {
+          settings: ModelSettings;
+          storageMode: string;
+          visibleModelIds: string[];
+        };
         const local = preferencesData.storageMode === "browser"
-          ? window.localStorage.getItem("eve-model-settings")
+          ? window.localStorage.getItem(MODEL_SETTINGS_STORAGE_KEY)
           : null;
         const settings = local ? JSON.parse(local) as ModelSettings : preferencesData.settings;
-        const selected = window.sessionStorage.getItem("eve-chat-model") ?? settings.ceo;
-        setModels(catalogData.models);
+        const localVisible = preferencesData.storageMode === "browser"
+          ? window.localStorage.getItem(VISIBLE_MODELS_STORAGE_KEY)
+          : null;
+        const visibleModelIds = localVisible
+          ? JSON.parse(localVisible) as string[]
+          : preferencesData.visibleModelIds ?? DEFAULT_VISIBLE_MODEL_IDS;
+        const visibleModels = modelsForNewSession(catalogData.models, visibleModelIds);
+        const requested = window.sessionStorage.getItem("eve-chat-model") ?? settings.ceo;
+        const selected = visibleModels.some((model) => model.id === requested)
+          ? requested
+          : visibleModels[0]?.id ?? settings.ceo;
+        setModels(visibleModels);
         setModelId(selected);
         window.sessionStorage.setItem("eve-chat-model", selected);
       })

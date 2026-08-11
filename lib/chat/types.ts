@@ -34,6 +34,11 @@ export type ModelRole = "ceo" | "engineering" | "reviewer" | "codex";
 
 export type ModelSettings = Record<ModelRole, string>;
 
+export type UserModelPreferences = {
+  readonly settings: ModelSettings;
+  readonly visibleModelIds: readonly string[];
+};
+
 export type GatewayModel = {
   readonly contextWindow: number | null;
   readonly description: string;

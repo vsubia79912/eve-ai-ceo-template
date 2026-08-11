@@ -109,6 +109,10 @@ export const userModelSettings = pgTable("user_model_settings", {
   engineeringModelId: text("engineering_model_id").notNull().default("openai/gpt-5.4-mini"),
   reviewerModelId: text("reviewer_model_id").notNull().default("openai/gpt-5.4-mini"),
   codexModelId: text("codex_model_id").notNull().default("openai/gpt-5.4"),
+  visibleModelIds: jsonb("visible_model_ids")
+    .$type<string[]>()
+    .notNull()
+    .default(sql`'["openai/gpt-5.4","openai/gpt-5.4-mini","openai/gpt-5.4-nano","google/gemini-3-flash","anthropic/claude-sonnet-4.6"]'::jsonb`),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

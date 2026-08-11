@@ -1,0 +1,1 @@
+ALTER TABLE "user_model_settings" ADD COLUMN "visible_model_ids" jsonb DEFAULT '["openai/gpt-5.4","openai/gpt-5.4-mini","openai/gpt-5.4-nano","google/gemini-3-flash","anthropic/claude-sonnet-4.6"]'::jsonb NOT NULL;

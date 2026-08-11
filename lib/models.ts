@@ -17,6 +17,37 @@ export const RECOMMENDED_MODEL_IDS = [
   "anthropic/claude-sonnet-4.6",
 ] as const;
 
+export const DEFAULT_VISIBLE_MODEL_IDS: readonly string[] = RECOMMENDED_MODEL_IDS;
+export const MODEL_SETTINGS_STORAGE_KEY = "eve-model-settings";
+export const VISIBLE_MODELS_STORAGE_KEY = "eve-visible-model-ids";
+
+export function averageModelPricePerMillion(pricing: GatewayModel["pricing"]) {
+  const rates = [pricing.input, pricing.output]
+    .filter((value): value is string => value !== null)
+    .map((value) => Number(value) * 1_000_000)
+    .filter(Number.isFinite);
+  if (rates.length === 0) return null;
+  return rates.reduce((total, rate) => total + rate, 0) / rates.length;
+}
+
+export function formatAverageModelPrice(pricing: GatewayModel["pricing"]) {
+  const average = averageModelPricePerMillion(pricing);
+  if (average === null) return "Pricing unavailable";
+  const digits = average < 0.1 ? 3 : average < 10 ? 2 : 0;
+  return `~$${average.toFixed(digits)} avg/1M`;
+}
+
+export function modelsForNewSession(
+  models: readonly GatewayModel[],
+  visibleModelIds: readonly string[],
+) {
+  const visible = new Set(visibleModelIds);
+  const selected = models.filter((model) => visible.has(model.id));
+  if (selected.length > 0) return selected;
+  const recommended = models.filter((model) => model.recommended);
+  return recommended.length > 0 ? recommended : models.slice(0, 1);
+}
+
 const FALLBACK_MODELS: GatewayModel[] = [
   ["openai/gpt-5.4", "GPT-5.4", "OpenAI"],
   ["openai/gpt-5.4-mini", "GPT-5.4 Mini", "OpenAI"],
@@ -119,6 +150,23 @@ export async function validateModelId(modelId: string) {
     throw new Error("Select a supported language model with tool use.");
   }
   return value;
+}
+
+export async function validateVisibleModelIds(input: readonly unknown[] | undefined) {
+  const models = await getGatewayModels();
+  const allowed = new Set(models.map((model) => model.id));
+  const requested = input ?? DEFAULT_VISIBLE_MODEL_IDS;
+  if (requested.some((value) => typeof value !== "string")) {
+    throw new Error("The New Session picker contains an invalid model.");
+  }
+  const values = [...new Set(requested.map((value) => (value as string).trim()))];
+  if (values.length === 0) {
+    throw new Error("Enable at least one model for the New Session picker.");
+  }
+  if (values.some((value) => !allowed.has(value))) {
+    throw new Error("The New Session picker contains an unavailable model.");
+  }
+  return values;
 }
 
 export async function validateModelSettings(input: Partial<ModelSettings>): Promise<ModelSettings> {

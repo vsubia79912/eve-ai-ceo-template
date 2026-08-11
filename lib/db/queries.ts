@@ -2,11 +2,17 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gte, lt, or, sql } from "drizzle-orm";
 import type { ClientSessionState, MessageStreamEvent } from "eve/client";
 import { isChatTurnTerminalEvent } from "@/lib/chat/events";
-import type { ActiveChat, ChatListItem, ChatListPage } from "@/lib/chat/types";
+import type { ActiveChat, ChatListItem, ChatListPage, UserModelPreferences } from "@/lib/chat/types";
 import { createFallbackTitle, DEFAULT_CHAT_TITLE } from "@/lib/chat/title";
 import { chat, chatEvent, userModelSettings } from "@/lib/db/schema";
 import { db } from "@/lib/db/client";
-import { DEFAULT_MODEL_SETTINGS, validateModelId, validateModelSettings } from "@/lib/models";
+import {
+  DEFAULT_MODEL_SETTINGS,
+  DEFAULT_VISIBLE_MODEL_IDS,
+  validateModelId,
+  validateModelSettings,
+  validateVisibleModelIds,
+} from "@/lib/models";
 import type { ModelSettings } from "@/lib/chat/types";
 
 const CHAT_HISTORY_PAGE_SIZE = 20;
@@ -217,7 +223,16 @@ export async function markChatPendingMessage({
   };
 }
 
-export async function getUserModelSettings(userId: string): Promise<ModelSettings> {
+function deploymentModelSettings(): ModelSettings {
+  return {
+    ceo: process.env.CEO_MODEL ?? DEFAULT_MODEL_SETTINGS.ceo,
+    engineering: process.env.ENGINEERING_MODEL ?? DEFAULT_MODEL_SETTINGS.engineering,
+    reviewer: process.env.REVIEWER_MODEL ?? DEFAULT_MODEL_SETTINGS.reviewer,
+    codex: process.env.CODEX_MODEL ?? DEFAULT_MODEL_SETTINGS.codex,
+  };
+}
+
+export async function getUserModelPreferences(userId: string): Promise<UserModelPreferences> {
   const [row] = await db
     .select()
     .from(userModelSettings)
@@ -225,22 +240,37 @@ export async function getUserModelSettings(userId: string): Promise<ModelSetting
     .limit(1);
   if (!row) {
     return {
-      ceo: process.env.CEO_MODEL ?? DEFAULT_MODEL_SETTINGS.ceo,
-      engineering: process.env.ENGINEERING_MODEL ?? DEFAULT_MODEL_SETTINGS.engineering,
-      reviewer: process.env.REVIEWER_MODEL ?? DEFAULT_MODEL_SETTINGS.reviewer,
-      codex: process.env.CODEX_MODEL ?? DEFAULT_MODEL_SETTINGS.codex,
+      settings: deploymentModelSettings(),
+      visibleModelIds: DEFAULT_VISIBLE_MODEL_IDS,
     };
   }
   return {
-    ceo: row.ceoModelId,
-    engineering: row.engineeringModelId,
-    reviewer: row.reviewerModelId,
-    codex: row.codexModelId,
+    settings: {
+      ceo: row.ceoModelId,
+      engineering: row.engineeringModelId,
+      reviewer: row.reviewerModelId,
+      codex: row.codexModelId,
+    },
+    visibleModelIds: row.visibleModelIds,
   };
 }
 
-export async function updateUserModelSettings(userId: string, input: Partial<ModelSettings>) {
-  const settings = await validateModelSettings(input);
+export async function getUserModelSettings(userId: string): Promise<ModelSettings> {
+  return (await getUserModelPreferences(userId)).settings;
+}
+
+export async function updateUserModelPreferences(
+  userId: string,
+  input: {
+    readonly settings?: Partial<ModelSettings>;
+    readonly visibleModelIds?: readonly string[];
+  },
+) {
+  const current = await getUserModelPreferences(userId);
+  const [settings, visibleModelIds] = await Promise.all([
+    validateModelSettings({ ...current.settings, ...input.settings }),
+    validateVisibleModelIds(input.visibleModelIds ?? current.visibleModelIds),
+  ]);
   await db
     .insert(userModelSettings)
     .values({
@@ -249,6 +279,7 @@ export async function updateUserModelSettings(userId: string, input: Partial<Mod
       engineeringModelId: settings.engineering,
       reviewerModelId: settings.reviewer,
       codexModelId: settings.codex,
+      visibleModelIds,
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
@@ -258,10 +289,11 @@ export async function updateUserModelSettings(userId: string, input: Partial<Mod
         engineeringModelId: settings.engineering,
         reviewerModelId: settings.reviewer,
         codexModelId: settings.codex,
+        visibleModelIds,
         updatedAt: new Date(),
       },
     });
-  return settings;
+  return { settings, visibleModelIds } satisfies UserModelPreferences;
 }
 
 export async function getChatRuntimeContext(chatId: string, userId: string) {
