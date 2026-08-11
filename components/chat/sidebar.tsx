@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ActivityIcon,
   ArrowRightIcon,
   BriefcaseBusinessIcon,
   EllipsisIcon,
@@ -9,6 +10,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 import {
   AuthDisplayLoggedIn,
@@ -23,6 +25,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  isSidebarNavItemActive,
+  SIDEBAR_NAV_ITEMS,
+  type SidebarNavItem,
+} from "@/lib/chat/navigation";
 import type { ChatListItem, SetupStatus, Viewer } from "@/lib/chat/types";
 import { cn } from "@/lib/utils";
 
@@ -61,7 +68,8 @@ export function ChatSidebar({
   readonly viewer: Viewer | null;
 }) {
   const authDisabled = !setupStatus.appReady;
-  const newSessionActive = activeChatId === null;
+  const pathname = usePathname();
+  const newSessionActive = pathname === "/";
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -132,13 +140,25 @@ export function ChatSidebar({
           <PlusIcon className="size-4" />
           New session
         </button>
-        <Link
-          className="flex h-8 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-          href="/tasks"
-        >
-          <BriefcaseBusinessIcon className="size-4" />
-          Engineering tasks
-        </Link>
+        {SIDEBAR_NAV_ITEMS.map((item) => {
+          const active = isSidebarNavItemActive(pathname, item);
+
+          return (
+            <Link
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex h-8 items-center gap-2 rounded-md px-2 text-sm transition-colors",
+                active ? activeRowClass : inactiveRowClass,
+              )}
+              href={item.href}
+              key={item.href}
+              onClick={() => onNavigate?.(null)}
+            >
+              <SidebarNavIcon item={item} />
+              {item.label}
+            </Link>
+          );
+        })}
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 py-2">
@@ -236,6 +256,14 @@ export function ChatSidebar({
       </div>
     </aside>
   );
+}
+
+function SidebarNavIcon({ item }: { readonly item: SidebarNavItem }) {
+  if (item.icon === "briefcase") {
+    return <BriefcaseBusinessIcon className="size-4" />;
+  }
+
+  return <ActivityIcon className="size-4" />;
 }
 
 function SidebarSignInButton({
