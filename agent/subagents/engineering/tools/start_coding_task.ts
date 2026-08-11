@@ -46,6 +46,9 @@ export default defineTool({
           recommendation: run.result.recommendation,
         });
       }
+      if (run.result.status === "failed") {
+        throw new Error(`Codex reported failure: ${run.result.summary}`);
+      }
       return { codex: run.result, eventCount: run.eventCount, task: taskPublicView(updated) };
     } catch (error) {
       await updateCompanyTask(taskId, {

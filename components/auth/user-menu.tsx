@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronsUpDownIcon, Loader2Icon, LogOutIcon } from "lucide-react";
+import { ChevronsUpDownIcon, Loader2Icon, LogOutIcon, SettingsIcon } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { VercelIcon } from "@/components/icons";
 import {
@@ -66,6 +67,9 @@ export function UserMenu({
           </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/settings/models"><SettingsIcon className="size-4" />Model settings</Link>
+        </DropdownMenuItem>
         <DropdownMenuItem
           aria-busy={signingOut}
           disabled={signingOut}

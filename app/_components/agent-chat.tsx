@@ -36,7 +36,7 @@ import { IntegrationsMenu } from "@/components/chat/integrations-menu";
 import { AgentMessage } from "@/components/chat/message";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { isChatTurnSettledEvent } from "@/lib/chat/events";
+import { isChatSessionBoundaryEvent, isChatTurnTerminalEvent } from "@/lib/chat/events";
 import { getChatMessageLengthError } from "@/lib/chat/limits";
 import {
   appendClientChatEvent,
@@ -49,6 +49,7 @@ import {
   skipClientChatAuthorization,
 } from "@/lib/chat/persistence-client";
 import type { ActiveChat, SetupStatus, Viewer } from "@/lib/chat/types";
+import { DEFAULT_MODEL_SETTINGS } from "@/lib/models";
 import { cn } from "@/lib/utils";
 
 type AgentSnapshot = EveAgentStoreSnapshot<EveMessageData>;
@@ -56,6 +57,7 @@ type PersistedClientSession = {
   readonly state: ClientSessionState | undefined;
   readonly respond: ClientSession["respond"];
   readonly send: ClientSession["send"];
+  setHeaders: (headers: Readonly<Record<string, string>>) => void;
   setState: (session: ClientSessionState | undefined) => void;
   stream: (options?: StreamSessionOptions) => AsyncIterable<MessageStreamEvent>;
 };
@@ -106,18 +108,42 @@ const STREAM_IDLE_TIMEOUT_MS = 120_000;
 const STREAM_RECONNECT_DELAY_MS = 350;
 const THINKING_EXIT_DURATION_MS = 180;
 
+function clientModelHeaders(ceoModelId: string) {
+  let settings = DEFAULT_MODEL_SETTINGS;
+  if (typeof window !== "undefined") {
+    try {
+      const stored = window.localStorage.getItem("eve-model-settings");
+      if (stored) settings = { ...settings, ...JSON.parse(stored) };
+    } catch {
+      // Invalid local preferences fall back to the server-validated defaults.
+    }
+  }
+  return {
+    "x-eve-model-ceo": ceoModelId,
+    "x-eve-model-engineering": settings.engineering,
+    "x-eve-model-reviewer": settings.reviewer,
+    "x-eve-model-codex": settings.codex,
+  };
+}
+
 function createPersistedClientSession({
+  headers,
   initialSession,
   onSessionStarted,
 }: {
+  readonly headers?: Readonly<Record<string, string>>;
   readonly initialSession?: ClientSessionState;
   readonly onSessionStarted: (session: ClientSessionState) => Promise<void> | void;
 }) {
   let session = initialSession;
+  let requestHeaders = headers;
 
   const dispatch = async (input: BrowserTurnInput) => {
     const previousSession = session;
-    const response = await postSessionTurn(previousSession, input);
+    const response = await postSessionTurn(previousSession, {
+      ...input,
+      headers: { ...requestHeaders, ...input.headers },
+    });
     const startedSession: ClientSessionState = {
       sessionId: response.sessionId,
       streamIndex:
@@ -185,6 +211,9 @@ function createPersistedClientSession({
     },
     setState(nextSession: ClientSessionState | undefined) {
       session = nextSession;
+    },
+    setHeaders(nextHeaders: Readonly<Record<string, string>>) {
+      requestHeaders = nextHeaders;
     },
   } as unknown as PersistedClientSession;
 }
@@ -340,7 +369,7 @@ async function* streamSessionEvents({
             events.length === 1 &&
             event.type === "session.waiting";
 
-          if (isChatTurnSettledEvent(event) && !isStaleLeadingWaiting) {
+          if (isChatSessionBoundaryEvent(event) && !isStaleLeadingWaiting) {
             foundBoundary = true;
             break;
           }
@@ -494,7 +523,7 @@ function findBoundaryEvent(events: readonly MessageStreamEvent[]) {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
 
-    if (event && isChatTurnSettledEvent(event)) {
+    if (event && isChatSessionBoundaryEvent(event)) {
       return event;
     }
   }
@@ -519,7 +548,7 @@ function hasOpenChatTurn(events: readonly MessageStreamEvent[]) {
   for (const event of events) {
     if (event.type === "turn.started") {
       open = true;
-    } else if (isChatTurnSettledEvent(event)) {
+    } else if (isChatTurnTerminalEvent(event)) {
       open = false;
     }
   }
@@ -685,6 +714,10 @@ export function AgentChatSession({
   );
   const persistedSessionRef = useRef<PersistedClientSession | null>(null);
   persistedSessionRef.current ??= createPersistedClientSession({
+    headers: {
+      "x-eve-chat-id": activeChat?.id ?? chatId ?? "",
+      ...clientModelHeaders(activeChat?.modelId ?? DEFAULT_MODEL_SETTINGS.ceo),
+    },
     initialSession: activeChat?.session,
     onSessionStarted: (session) => onSessionStartedRef.current(session),
   });
@@ -743,11 +776,9 @@ export function AgentChatSession({
           localEventsRef.current,
         );
 
-        await saveClientChatSnapshot(storageMode, {
-          chatId,
-          events,
-          session,
-        });
+        if (storageMode === "browser") {
+          await saveClientChatSnapshot(storageMode, { chatId, events, session });
+        }
         eventIndexRef.current = events.length;
         knownInitialEventsRef.current = events;
         streamEventsRef.current = [];
@@ -760,6 +791,7 @@ export function AgentChatSession({
         onActiveChatUpdated?.({
           events,
           id: chatId,
+          modelId: activeChat?.modelId ?? DEFAULT_MODEL_SETTINGS.ceo,
           pendingUserMessage: null,
           session,
           title: currentTitleRef.current,
@@ -812,15 +844,15 @@ export function AgentChatSession({
       const eventIndex = eventIndexRef.current;
       eventIndexRef.current += 1;
 
-      void appendClientChatEvent(storageMode, {
-        chatId,
-        event: displayEvent,
-        eventIndex,
-      }).catch((error) => {
-        setClientError(
-          error instanceof Error ? error.message : "Failed to save stream progress.",
-        );
-      });
+      if (storageMode === "browser") {
+        void appendClientChatEvent(storageMode, {
+          chatId,
+          event: displayEvent,
+          eventIndex,
+        }).catch((error) => {
+          setClientError(error instanceof Error ? error.message : "Failed to save stream progress.");
+        });
+      }
     },
     [stopFinalizingTurn, storageMode, viewer],
   );
@@ -834,10 +866,9 @@ export function AgentChatSession({
       }
 
       try {
-        await saveClientChatSession(storageMode, {
-          chatId,
-          session,
-        });
+        if (storageMode === "browser") {
+          await saveClientChatSession(storageMode, { chatId, session });
+        }
       } catch (error) {
         setClientError(
           error instanceof Error ? error.message : "Failed to save session state.",
@@ -911,7 +942,7 @@ export function AgentChatSession({
   const isChatRoute = Boolean(shellActiveChatId || chatId);
   const showThinking =
     !isWaitingForAuthorization &&
-    (Boolean(pendingMessage || localPendingMessage) || hasOpenTurn || isTurnBlocked);
+    (Boolean(pendingMessage || localPendingMessage) || hasOpenTurn);
   const thinkingPresence = useThinkingPresence(showThinking);
   const displayError = clientError ?? agent.error?.message ?? null;
   const toastError = displayError && dismissedError !== displayError ? displayError : null;
@@ -950,6 +981,10 @@ export function AgentChatSession({
 
       if (!activeChatIdRef.current) {
         const created = await createClientChat(storageMode, {
+          modelId:
+            typeof window !== "undefined"
+              ? window.sessionStorage.getItem("eve-chat-model") ?? DEFAULT_MODEL_SETTINGS.ceo
+              : DEFAULT_MODEL_SETTINGS.ceo,
           pendingUserMessage: firstMessage,
         });
 
@@ -957,6 +992,14 @@ export function AgentChatSession({
         setActiveChatId(created.id);
         setShellActiveChatId(created.id);
         activeChatIdRef.current = created.id;
+        persistedSessionRef.current?.setHeaders({
+          "x-eve-chat-id": created.id,
+          ...clientModelHeaders(
+            typeof window !== "undefined"
+              ? window.sessionStorage.getItem("eve-chat-model") ?? DEFAULT_MODEL_SETTINGS.ceo
+              : DEFAULT_MODEL_SETTINGS.ceo,
+          ),
+        });
         eventIndexChatIdRef.current = created.id;
         eventIndexRef.current = 0;
         knownInitialEventsRef.current = [];
@@ -1211,6 +1254,7 @@ export function AgentChatSession({
         onActiveChatUpdated?.({
           events: skippedEvents,
           id: chatId,
+          modelId: activeChat?.modelId ?? DEFAULT_MODEL_SETTINGS.ceo,
           pendingUserMessage: null,
           session: nextSession,
           title: currentTitleRef.current,
@@ -1292,8 +1336,7 @@ export function AgentChatSession({
     if (
       !viewer ||
       !activeChat?.session?.sessionId ||
-      resumeStartedRef.current ||
-      agent.status !== "ready"
+      resumeStartedRef.current
     ) {
       return;
     }
@@ -1307,7 +1350,7 @@ export function AgentChatSession({
       return;
     }
 
-    const startIndex = existingEvents.length;
+    const startIndex = activeChat.session.streamIndex;
     const shouldIgnoreLeadingWaiting =
       pendingMessageText !== null &&
       !hasLatestUserMessage(
@@ -1315,6 +1358,10 @@ export function AgentChatSession({
         pendingMessageText,
       );
     const session = createPersistedClientSession({
+      headers: {
+        "x-eve-chat-id": activeChat.id,
+        ...clientModelHeaders(activeChat.modelId),
+      },
       initialSession: activeChat.session,
       onSessionStarted: persistSessionState,
     });
@@ -1354,7 +1401,7 @@ export function AgentChatSession({
             eventIndex: startIndex + nextEvents.length - 1,
           });
 
-          if (isChatTurnSettledEvent(event)) {
+          if (isChatSessionBoundaryEvent(event)) {
             break;
           }
         }
@@ -1366,16 +1413,23 @@ export function AgentChatSession({
         const newEvents = resumedEventsRef.current;
         const allEvents = [...existingEvents, ...newEvents];
 
-        if (!newEvents.some(isChatTurnSettledEvent)) {
+        if (!newEvents.some(isChatSessionBoundaryEvent)) {
           setClientError("Stream disconnected before the response completed.");
           return;
         }
 
-        await saveClientChatSnapshot(storageMode, {
-          chatId: activeChat.id,
-          events: allEvents,
-          session: session.state,
-        });
+        if (storageMode === "browser") {
+          await saveClientChatSnapshot(storageMode, {
+            chatId: activeChat.id,
+            events: allEvents,
+            session: session.state,
+          });
+        } else if (session.state) {
+          await saveClientChatSession(storageMode, {
+            chatId: activeChat.id,
+            session: session.state,
+          });
+        }
         eventIndexRef.current = allEvents.length;
         knownInitialEventsRef.current = allEvents;
         resumedEventsRef.current = [];
@@ -1388,6 +1442,7 @@ export function AgentChatSession({
         onActiveChatUpdated?.({
           events: allEvents,
           id: activeChat.id,
+          modelId: activeChat.modelId,
           pendingUserMessage: null,
           session: session.state,
           title: currentTitleRef.current,
@@ -1417,7 +1472,6 @@ export function AgentChatSession({
     activeChat?.events,
     activeChat?.id,
     activeChat?.session,
-    agent.status,
     onActiveChatUpdated,
     onPendingUserMessageSettled,
     pendingUserMessage,
@@ -1813,7 +1867,10 @@ function areSameStreamEvent(
   left: MessageStreamEvent,
   right: MessageStreamEvent | undefined,
 ) {
-  return right !== undefined && areEqualJsonValues(left, right);
+  if (right === undefined) return false;
+  const leftId = left.meta?.id;
+  const rightId = right.meta?.id;
+  return leftId && rightId ? leftId === rightId : areEqualJsonValues(left, right);
 }
 
 function areEqualJsonValues(left: unknown, right: unknown): boolean {
@@ -2068,8 +2125,10 @@ export function ErrorToast({
 }
 
 export function ComposerFooterControls({
+  modelId,
   setupStatus,
 }: {
+  readonly modelId?: string;
   readonly setupStatus: SetupStatus;
 }) {
   const { enabledConnections, setConnectionEnabled } = useChatShell();
@@ -2077,6 +2136,16 @@ export function ComposerFooterControls({
   return (
     <div className="flex min-w-0 max-w-full items-center gap-1.5 overflow-hidden">
       <ComposerHint setupStatus={setupStatus} />
+      {modelId ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex h-8 max-w-48 items-center truncate rounded-md px-2 text-xs text-muted-foreground">
+              {modelId}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>This model is locked for this chat.</TooltipContent>
+        </Tooltip>
+      ) : null}
       {setupStatus.connectionsAvailable ? (
         <IntegrationsMenu
           enabledConnections={enabledConnections}

@@ -29,8 +29,22 @@ export default async function TaskDetailPage({ params }: { readonly params: Prom
         <Fact label="Assigned" value={task.assignedAgent} />
         <Fact label="Engineering session" value={task.eveSessionId ?? "Pending"} mono />
         <Fact label="Sandbox" value={task.sandboxId ?? "Pending"} mono />
-        <Fact label="Codex thread" value={task.codingRunId ?? "Pending"} mono />
+        <Fact
+          label="Codex thread"
+          value={task.codingRunId ?? (task.error ? "Failed to start" : "Pending")}
+          mono
+        />
       </dl>
+      {task.effectiveModels ? (
+        <section className="mt-6 rounded-xl border border-border p-5">
+          <h2 className="font-medium">Effective models</h2>
+          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+            {Object.entries(task.effectiveModels).map(([role, model]) => (
+              <Fact key={role} label={role} value={model} mono />
+            ))}
+          </dl>
+        </section>
+      ) : null}
       {task.blockingQuestion ? <section className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-5"><h2 className="font-medium">Blocking question</h2><pre className="mt-3 whitespace-pre-wrap text-sm">{JSON.stringify(task.blockingQuestion, null, 2)}</pre></section> : null}
       {task.prUrl ? <a className="mt-6 inline-flex text-sm font-medium underline underline-offset-4" href={task.prUrl} rel="noreferrer" target="_blank">Open draft PR #{task.prNumber}</a> : null}
       <section className="mt-10">

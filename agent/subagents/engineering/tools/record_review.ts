@@ -1,6 +1,6 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { addTaskEvent, getCompanyTask, updateCompanyTask } from "@/lib/company/store";
+import { addTaskEvent, assertRunnableCodingTask, getCompanyTask, updateCompanyTask } from "@/lib/company/store";
 
 export default defineTool({
   description: "Persist the nested reviewer's PASS or FAIL result before publishing or repairing.",
@@ -19,6 +19,11 @@ export default defineTool({
   }),
   async execute(input) {
     const before = await getCompanyTask(input.taskId);
+    assertRunnableCodingTask(before);
+    const verification = before.verification as readonly { exitCode?: number }[] | null;
+    if (!verification?.length || verification.some((result) => result.exitCode !== 0)) {
+      throw new Error("Reviewer results can be recorded only after passing independent verification.");
+    }
     const review = { findings: input.findings, outcome: input.outcome, summary: input.summary };
     await addTaskEvent(input.taskId, "REVIEW_STARTED", "Reviewer evaluated the implementation.", {
       reviewAttempt: before.reviewAttempts + 1,

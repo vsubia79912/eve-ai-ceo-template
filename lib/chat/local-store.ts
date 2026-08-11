@@ -3,6 +3,7 @@
 import type { ClientSessionState, MessageStreamEvent } from "eve/client";
 import { createFallbackTitle, DEFAULT_CHAT_TITLE } from "@/lib/chat/title";
 import type { ActiveChat, ChatListItem } from "@/lib/chat/types";
+import { DEFAULT_MODEL_SETTINGS } from "@/lib/models";
 
 const STORAGE_KEY = "eve-chat-template:chats";
 const STORAGE_VERSION = 1;
@@ -27,12 +28,13 @@ export function getLocalChat(chatId: string): ActiveChat | null {
   return chat ? toActiveChat(chat) : null;
 }
 
-export function createLocalChat(pendingUserMessage?: string) {
+export function createLocalChat(pendingUserMessage?: string, modelId?: string) {
   const pendingMessage = pendingUserMessage?.trim() || null;
   const now = new Date().toISOString();
   const chat: StoredChat = {
     events: [],
     id: crypto.randomUUID(),
+    modelId: modelId ?? DEFAULT_MODEL_SETTINGS.ceo,
     pendingUserMessage: pendingMessage,
     session: undefined,
     title: pendingMessage ? createFallbackTitle(pendingMessage) : DEFAULT_CHAT_TITLE,
@@ -213,6 +215,7 @@ function toActiveChat(chat: StoredChat): ActiveChat {
   return {
     events: chat.events,
     id: chat.id,
+    modelId: chat.modelId ?? DEFAULT_MODEL_SETTINGS.ceo,
     pendingUserMessage: chat.pendingUserMessage ?? null,
     session: chat.session,
     title: chat.title,

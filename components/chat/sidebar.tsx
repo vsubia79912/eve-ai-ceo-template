@@ -3,6 +3,7 @@
 import {
   ArrowRightIcon,
   BriefcaseBusinessIcon,
+  SettingsIcon,
   EllipsisIcon,
   PanelLeftIcon,
   PlusIcon,
@@ -138,6 +139,13 @@ export function ChatSidebar({
         >
           <BriefcaseBusinessIcon className="size-4" />
           Engineering tasks
+        </Link>
+        <Link
+          className="flex h-8 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+          href="/settings/models"
+        >
+          <SettingsIcon className="size-4" />
+          Model settings
         </Link>
       </div>
 

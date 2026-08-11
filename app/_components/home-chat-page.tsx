@@ -9,13 +9,15 @@ import {
 } from "@/app/_components/agent-chat";
 import { useChatShell } from "@/app/_components/chat-shell-context";
 import { ChatComposer } from "@/components/chat/composer";
+import { ModelSelect } from "@/components/chat/model-select";
 import { TemplateFooterLinks } from "@/components/chat/template-footer-links";
 import { getChatMessageLengthError } from "@/lib/chat/limits";
 import {
   createProvisionalChatId,
   writePendingChatMessage,
 } from "@/lib/chat/provisional-chat";
-import type { SetupStatus } from "@/lib/chat/types";
+import type { GatewayModel, ModelSettings, SetupStatus } from "@/lib/chat/types";
+import { DEFAULT_MODEL_SETTINGS } from "@/lib/models";
 
 const IDLE_CONTROLLER_STATUS: AgentChatControllerStatus = {
   isBusy: false,
@@ -32,6 +34,8 @@ export function HomeChatPage() {
   } = useChatShell();
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [models, setModels] = useState<GatewayModel[]>([]);
+  const [modelId, setModelId] = useState(DEFAULT_MODEL_SETTINGS.ceo);
   const [clientError, setClientError] = useState<string | null>(null);
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const submittingRef = useRef(false);
@@ -62,6 +66,25 @@ export function HomeChatPage() {
       setDraft(restoredDraft);
       window.sessionStorage.removeItem("eve-chat-draft");
     }
+  }, [viewer]);
+
+  useEffect(() => {
+    if (!viewer) return;
+    void Promise.all([fetch("/api/models"), fetch("/api/settings/models")])
+      .then(async ([catalog, preferences]) => {
+        if (!catalog.ok || !preferences.ok) return;
+        const catalogData = await catalog.json() as { models: GatewayModel[] };
+        const preferencesData = await preferences.json() as { settings: ModelSettings; storageMode: string };
+        const local = preferencesData.storageMode === "browser"
+          ? window.localStorage.getItem("eve-model-settings")
+          : null;
+        const settings = local ? JSON.parse(local) as ModelSettings : preferencesData.settings;
+        const selected = window.sessionStorage.getItem("eve-chat-model") ?? settings.ceo;
+        setModels(catalogData.models);
+        setModelId(selected);
+        window.sessionStorage.setItem("eve-chat-model", selected);
+      })
+      .catch(() => undefined);
   }, [viewer]);
 
   useEffect(() => {
@@ -157,6 +180,18 @@ export function HomeChatPage() {
                 src="/eve.svg"
               />
             </h1>
+            {viewer && models.length > 0 ? (
+              <div className="mx-auto max-w-sm">
+                <ModelSelect
+                  models={models}
+                  onChange={(value) => {
+                    setModelId(value);
+                    window.sessionStorage.setItem("eve-chat-model", value);
+                  }}
+                  value={modelId}
+                />
+              </div>
+            ) : null}
             <ChatComposer
               autoFocus
               disabled={composerDisabled}

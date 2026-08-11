@@ -8,6 +8,10 @@ export default defineTool({
   inputSchema: z.object({ taskId: z.string().uuid() }),
   async execute({ taskId }, ctx) {
     const task = await getCompanyTask(taskId);
+    if (!task.codingRunId) throw new Error("A real Codex coding run is required before PR creation.");
+    if (task.status === "FAILED" || task.status === "CANCELLED") {
+      throw new Error(`Cannot publish a ${task.status} task.`);
+    }
     const review = task.review as { outcome?: string } | null;
     const verification = task.verification as readonly { exitCode?: number }[] | null;
     if (!verification?.length || verification.some((result) => result.exitCode !== 0)) {

@@ -26,6 +26,7 @@ import {
   getClientChat,
 } from "@/lib/chat/persistence-client";
 import type { ActiveChat, SetupStatus } from "@/lib/chat/types";
+import { DEFAULT_MODEL_SETTINGS } from "@/lib/models";
 
 const IDLE_CONTROLLER_STATUS: AgentChatControllerStatus = {
   isBusy: false,
@@ -106,6 +107,7 @@ export function SessionChatPage({
     void (async () => {
       try {
         const created = await createClientChat(setupStatus.storageMode, {
+          modelId: window.sessionStorage.getItem("eve-chat-model") ?? DEFAULT_MODEL_SETTINGS.ceo,
           pendingUserMessage: pendingMessage,
         });
 
@@ -400,7 +402,9 @@ export function SessionChatPage({
           <ChatComposer
             disabled={composerDisabled}
             disabledReason={composerDisabledReason}
-            footerStart={<ComposerFooterControls setupStatus={setupStatus} />}
+            footerStart={
+              <ComposerFooterControls modelId={activeChat?.modelId} setupStatus={setupStatus} />
+            }
             isBusy={controllerStatus.isBusy}
             onChange={setDraft}
             onStop={handleComposerStop}

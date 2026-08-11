@@ -2,7 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { companyConfig } from "@/lib/company/config";
 import { resumeCodexTask } from "@/lib/company/codex-worker";
-import { addTaskEvent, getCompanyTask, taskPublicView, updateCompanyTask } from "@/lib/company/store";
+import { addTaskEvent, assertRunnableCodingTask, getCompanyTask, taskPublicView, updateCompanyTask } from "@/lib/company/store";
 
 export default defineTool({
   description: "Send a CEO decision, verification failure, or reviewer finding to the same active Codex thread and sandbox.",
@@ -13,6 +13,7 @@ export default defineTool({
   }),
   async execute(input, ctx) {
     const before = await getCompanyTask(input.taskId);
+    assertRunnableCodingTask(before);
     if (input.reason === "VERIFICATION_FAILURE" && before.repairAttempts >= companyConfig.limits.maxRepairLoops) {
       throw new Error(`MAX_REPAIR_LOOPS (${companyConfig.limits.maxRepairLoops}) reached.`);
     }
@@ -43,6 +44,9 @@ export default defineTool({
     });
     if (blocked) {
       await addTaskEvent(input.taskId, "QUESTION_ESCALATED", run.result.question ?? "Product question escalated.");
+    }
+    if (run.result.status === "failed") {
+      throw new Error(`Codex reported failure: ${run.result.summary}`);
     }
     return { codex: run.result, eventCount: run.eventCount, task: taskPublicView(updated) };
   },

@@ -44,6 +44,9 @@ importers:
       '@vercel/connect':
         specifier: 0.2.4
         version: 0.2.4(ai@7.0.38(zod@4.4.3))(better-auth@1.6.26(drizzle-kit@0.31.9)(drizzle-orm@0.45.2(@neondatabase/serverless@1.0.2)(@types/pg@8.20.0)(@upstash/redis@1.38.0)(kysely@0.28.17))(mongodb@7.3.0)(next@16.3.0(@babel/core@7.29.7)(@types/node@25.9.3)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(eve@0.31.3(@upstash/redis@1.38.0)(ai@7.0.38(zod@4.4.3))(drizzle-orm@0.45.2(@neondatabase/serverless@1.0.2)(@types/pg@8.20.0)(@upstash/redis@1.38.0)(kysely@0.28.17))(jiti@2.7.0)(microsandbox@0.5.7)(mongodb@7.3.0))
+      '@vercel/oidc':
+        specifier: 3.6.1
+        version: 3.6.1
       '@vercel/speed-insights':
         specifier: 2.0.0
         version: 2.0.0(next@16.3.0(@babel/core@7.29.7)(@types/node@25.9.3)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(react@19.2.6)

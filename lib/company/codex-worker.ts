@@ -68,13 +68,13 @@ const resultSchema = {
   },
 };
 
-function gatewayConfig() {
-  return `profile = "company"\n\n[model_providers.vercel]\nname = "Vercel AI Gateway"\nbase_url = "https://ai-gateway.vercel.sh/v1"\nenv_key = "AI_GATEWAY_API_KEY"\nwire_api = "chat"\n\n[profiles.company]\nmodel_provider = "vercel"\nmodel = "${companyConfig.models.codex}"\n`;
+function gatewayConfig(modelId: string) {
+  return `profile = "company"\n\n[model_providers.vercel]\nname = "Vercel AI Gateway"\nbase_url = "https://ai-gateway.vercel.sh/v1"\nenv_key = "AI_GATEWAY_API_KEY"\nwire_api = "chat"\n\n[profiles.company]\nmodel_provider = "vercel"\nmodel = "${modelId}"\n`;
 }
 
-function codexEnvironment() {
+async function codexEnvironment() {
   return {
-    AI_GATEWAY_API_KEY: getAiGatewayCredential(),
+    AI_GATEWAY_API_KEY: await getAiGatewayCredential(),
     CODEX_HOME,
   };
 }
@@ -131,7 +131,8 @@ export async function startCodexTask(sandbox: SandboxSession, taskId: string) {
   const baseBranch = validateGitRef(task.baseBranch, "Base branch");
   const workingBranch = validateGitRef(task.workingBranch ?? "", "Working branch");
 
-  await sandbox.writeTextFile({ path: `${CODEX_HOME}/config.toml`, content: gatewayConfig() });
+  const codexModel = task.effectiveModels?.codex ?? companyConfig.models.codex;
+  await sandbox.writeTextFile({ path: `${CODEX_HOME}/config.toml`, content: gatewayConfig(codexModel) });
   await sandbox.writeTextFile({ path: RESULT_SCHEMA, content: JSON.stringify(resultSchema, null, 2) });
   await sandbox.writeTextFile({ path: `${COMPANY_HOME}/initial-prompt.txt`, content: initialPrompt(task) });
 
@@ -160,7 +161,7 @@ export async function startCodexTask(sandbox: SandboxSession, taskId: string) {
     workingBranch,
   });
   const command = `timeout ${companyConfig.limits.maxTaskRuntimeMinutes}m codex exec --profile company --json --output-schema ${RESULT_SCHEMA} --output-last-message ${LAST_MESSAGE} --dangerously-bypass-approvals-and-sandbox -C ${WORKSPACE} - < ${COMPANY_HOME}/initial-prompt.txt`;
-  const run = await sandbox.run({ command, env: codexEnvironment(), workingDirectory: WORKSPACE });
+  const run = await sandbox.run({ command, env: await codexEnvironment(), workingDirectory: WORKSPACE });
   const events = parseJsonLines(run.stdout);
   const threadId = findThreadId(events);
   if (!threadId) throw new Error(`Codex did not report a resumable thread id. ${run.stderr}`);
@@ -181,7 +182,7 @@ export async function resumeCodexTask(sandbox: SandboxSession, taskId: string, i
     followup: task.codexFollowups + 1,
   });
   const command = `timeout ${companyConfig.limits.maxTaskRuntimeMinutes}m codex exec resume ${task.codingRunId} --json --output-schema ${RESULT_SCHEMA} --output-last-message ${LAST_MESSAGE} --dangerously-bypass-approvals-and-sandbox - < ${COMPANY_HOME}/followup-prompt.txt`;
-  const run = await sandbox.run({ command, env: codexEnvironment(), workingDirectory: WORKSPACE });
+  const run = await sandbox.run({ command, env: await codexEnvironment(), workingDirectory: WORKSPACE });
   if (run.exitCode !== 0) throw new Error(`Codex resume exited with ${run.exitCode}: ${run.stderr}`);
   return {
     eventCount: parseJsonLines(run.stdout).length,
@@ -208,6 +209,10 @@ export async function runVerification(
   taskId: string,
   commands: readonly string[],
 ) {
+  const task = await getCompanyTask(taskId);
+  if (!task.codingRunId || task.status === "FAILED" || task.status === "CANCELLED") {
+    throw new Error("Verification requires a successfully started, non-failed Codex task.");
+  }
   if (commands.length === 0 || commands.length > 8) {
     throw new Error("Provide between 1 and 8 verification commands.");
   }
@@ -218,7 +223,10 @@ export async function runVerification(
   });
   for (const command of commands) {
     if (!SAFE_VERIFICATION.test(command.trim())) {
-      throw new Error(`Verification command is outside the allowed command set: ${command}`);
+      const prefix = /^(?:cd\s+|[^&]+&&)/.test(command.trim())
+        ? "Pass only the bare package command; the worker already uses the repository directory. "
+        : "";
+      throw new Error(`${prefix}Verification command is outside the allowed command set: ${command}`);
     }
     const result = await sandbox.run({ command, workingDirectory: WORKSPACE });
     results.push({
@@ -241,6 +249,16 @@ export async function runVerification(
 
 export async function publishPullRequest(sandbox: SandboxSession, taskId: string) {
   const task = await getCompanyTask(taskId);
+  const review = task.review as { outcome?: string } | null;
+  const verification = task.verification as readonly { exitCode?: number }[] | null;
+  if (!task.codingRunId) throw new Error("A real Codex coding run is required before publishing.");
+  if (task.status === "FAILED" || task.status === "CANCELLED") {
+    throw new Error(`Cannot publish a terminal ${task.status} task.`);
+  }
+  if (!verification?.length || verification.some((result) => result.exitCode !== 0)) {
+    throw new Error("Passing independent verification is required before publishing.");
+  }
+  if (review?.outcome !== "PASS") throw new Error("Reviewer PASS is required before publishing.");
   const repository = parseGitHubRepository(task.repository);
   const token = await getGitHubToken();
   if (!task.workingBranch) throw new Error("Task has no working branch.");

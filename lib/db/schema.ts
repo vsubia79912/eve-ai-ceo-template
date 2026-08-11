@@ -70,6 +70,8 @@ export const chat = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     title: text("title").notNull().default("New chat"),
+    modelId: text("model_id").notNull().default("openai/gpt-5.4-mini"),
+    nextEventIndex: integer("next_event_index").notNull().default(0),
     eveSession: jsonb("eve_session").$type<ClientSessionState | null>(),
     pendingUserMessage: text("pending_user_message"),
     pendingUserMessageCreatedAt: timestamp("pending_user_message_created_at"),
@@ -98,6 +100,17 @@ export const chatEvent = pgTable(
     uniqueIndex("idx_chat_event_chat_index").on(table.chatId, table.eventIndex),
   ],
 );
+
+export const userModelSettings = pgTable("user_model_settings", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  ceoModelId: text("ceo_model_id").notNull().default("openai/gpt-5.4-mini"),
+  engineeringModelId: text("engineering_model_id").notNull().default("openai/gpt-5.4-mini"),
+  reviewerModelId: text("reviewer_model_id").notNull().default("openai/gpt-5.4-mini"),
+  codexModelId: text("codex_model_id").notNull().default("openai/gpt-5.4"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
 
 export const taskStatus = pgEnum("task_status", [
   "BACKLOG",
@@ -157,6 +170,12 @@ export const task = pgTable(
     repairAttempts: integer("repair_attempts").notNull().default(0),
     reviewAttempts: integer("review_attempts").notNull().default(0),
     codexFollowups: integer("codex_followups").notNull().default(0),
+    effectiveModels: jsonb("effective_models").$type<{
+      ceo: string;
+      engineering: string;
+      reviewer: string;
+      codex: string;
+    }>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
     startedAt: timestamp("started_at"),
@@ -220,6 +239,7 @@ export const approval = pgTable(
 
 export type Chat = typeof chat.$inferSelect;
 export type ChatEvent = typeof chatEvent.$inferSelect;
+export type UserModelSettings = typeof userModelSettings.$inferSelect;
 export type CompanyTask = typeof task.$inferSelect;
 export type CompanyTaskEvent = typeof taskEvent.$inferSelect;
 export type Decision = typeof decision.$inferSelect;

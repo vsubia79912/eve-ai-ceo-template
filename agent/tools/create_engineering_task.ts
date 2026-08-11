@@ -2,6 +2,8 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { parseGitHubRepository, validateGitRef } from "@/lib/company/repository";
 import { createCompanyTask, taskPublicView } from "@/lib/company/store";
+import { companyConfig } from "@/lib/company/config";
+import { resolveModelAttribute } from "@/lib/models";
 
 export default defineTool({
   description: "Create and persist one software-development task before delegating it to Engineering.",
@@ -24,6 +26,13 @@ export default defineTool({
       acceptanceCriteria: input.acceptanceCriteria,
       baseBranch,
       eveSessionId: ctx.session.id,
+      effectiveModels: {
+        ceo: resolveModelAttribute("ceo", ctx.session.auth) ?? companyConfig.models.ceo,
+        engineering:
+          resolveModelAttribute("engineering", ctx.session.auth) ?? companyConfig.models.engineering,
+        reviewer: resolveModelAttribute("reviewer", ctx.session.auth) ?? companyConfig.models.reviewer,
+        codex: resolveModelAttribute("codex", ctx.session.auth) ?? companyConfig.models.codex,
+      },
       ownerId,
       repository: repository.fullName,
     });

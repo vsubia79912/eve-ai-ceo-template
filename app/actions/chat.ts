@@ -20,7 +20,10 @@ import { getSetupStatus } from "@/lib/setup";
 const SEND_LIMIT = 25;
 const SEND_WINDOW_SECONDS = 60 * 60;
 
-export async function createChatAction(input?: { readonly pendingUserMessage?: string }) {
+export async function createChatAction(input?: {
+  readonly modelId?: string;
+  readonly pendingUserMessage?: string;
+}) {
   const viewer = await requireViewer();
 
   if (input?.pendingUserMessage) {
@@ -35,6 +38,7 @@ export async function createChatAction(input?: { readonly pendingUserMessage?: s
   });
 
   return createChat(viewer.id, {
+    modelId: input?.modelId,
     pendingUserMessage: input?.pendingUserMessage,
   });
 }

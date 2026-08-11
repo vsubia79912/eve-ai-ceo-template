@@ -1,3 +1,7 @@
+import { sign } from "node:crypto";
+import { getVercelOidcToken } from "@vercel/oidc";
+import { DEFAULT_MODEL_SETTINGS } from "@/lib/models";
+
 function positiveInteger(value: string | undefined, fallback: number) {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -5,16 +9,16 @@ function positiveInteger(value: string | undefined, fallback: number) {
 
 export const companyConfig = {
   models: {
-    ceo: process.env.CEO_MODEL ?? "openai/gpt-5.4",
-    engineering: process.env.ENGINEERING_MODEL ?? "openai/gpt-5.4",
-    reviewer: process.env.REVIEWER_MODEL ?? "openai/gpt-5.4-mini",
-    codex: process.env.CODEX_MODEL ?? "openai/gpt-5.4",
+    ceo: process.env.CEO_MODEL ?? DEFAULT_MODEL_SETTINGS.ceo,
+    engineering: process.env.ENGINEERING_MODEL ?? DEFAULT_MODEL_SETTINGS.engineering,
+    reviewer: process.env.REVIEWER_MODEL ?? DEFAULT_MODEL_SETTINGS.reviewer,
+    codex: process.env.CODEX_MODEL ?? DEFAULT_MODEL_SETTINGS.codex,
   },
   limits: {
     maxRepairLoops: positiveInteger(process.env.MAX_REPAIR_LOOPS, 3),
     maxReviewLoops: positiveInteger(process.env.MAX_REVIEW_LOOPS, 2),
-    maxCodexFollowups: positiveInteger(process.env.MAX_CODEX_FOLLOWUPS, 8),
-    maxTaskRuntimeMinutes: positiveInteger(process.env.MAX_TASK_RUNTIME_MINUTES, 120),
+    maxCodexFollowups: positiveInteger(process.env.MAX_CODEX_FOLLOWUPS, 3),
+    maxTaskRuntimeMinutes: positiveInteger(process.env.MAX_TASK_RUNTIME_MINUTES, 45),
   },
 } as const;
 
@@ -24,12 +28,11 @@ export function requireCompanyDatabase() {
   }
 }
 
-export function getAiGatewayCredential() {
-  const credential =
-    process.env.AI_GATEWAY_API_KEY?.trim() ?? process.env.VERCEL_OIDC_TOKEN?.trim();
+export async function getAiGatewayCredential() {
+  const credential = process.env.AI_GATEWAY_API_KEY?.trim() || (await getVercelOidcToken());
   if (!credential) {
     throw new Error(
-      "VERCEL_OIDC_TOKEN (preferred) or AI_GATEWAY_API_KEY is required to run Codex through Vercel AI Gateway.",
+      "AI_GATEWAY_API_KEY or request-scoped Vercel OIDC is required to run Codex through Vercel AI Gateway.",
     );
   }
   return credential;
@@ -92,4 +95,3 @@ export async function getGitHubToken() {
   };
   return result.token;
 }
-import { sign } from "node:crypto";

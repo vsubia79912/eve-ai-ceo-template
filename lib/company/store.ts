@@ -23,6 +23,12 @@ export async function createCompanyTask(input: {
   readonly baseBranch: string;
   readonly eveSessionId?: string;
   readonly priority?: number;
+  readonly effectiveModels: {
+    readonly ceo: string;
+    readonly engineering: string;
+    readonly reviewer: string;
+    readonly codex: string;
+  };
 }) {
   requireCompanyDatabase();
   let [projectRow] = await db
@@ -51,6 +57,7 @@ export async function createCompanyTask(input: {
       acceptanceCriteria: [...input.acceptanceCriteria],
       baseBranch: input.baseBranch,
       description: input.description,
+      effectiveModels: input.effectiveModels,
       eveSessionId: input.eveSessionId,
       id: taskId,
       priority: input.priority ?? 3,
@@ -83,6 +90,15 @@ export async function updateCompanyTask(taskId: string, patch: TaskPatch) {
     .returning();
   if (!row) throw new Error(`Task ${taskId} was not found.`);
   return row;
+}
+
+export function assertRunnableCodingTask(row: CompanyTask) {
+  if (row.status === "FAILED" || row.status === "CANCELLED" || row.status === "COMPLETED") {
+    throw new Error(`Task is terminal (${row.status}) and cannot continue.`);
+  }
+  if (!row.codingRunId) {
+    throw new Error("Codex did not start. This task is fail-closed and cannot verify, review, or publish.");
+  }
 }
 
 export async function addTaskEvent(
@@ -172,6 +188,7 @@ export function taskPublicView(row: CompanyTask) {
     repairAttempts: row.repairAttempts,
     reviewAttempts: row.reviewAttempts,
     codexFollowups: row.codexFollowups,
+    effectiveModels: row.effectiveModels,
     verification: row.verification,
     review: row.review,
     result: row.result,

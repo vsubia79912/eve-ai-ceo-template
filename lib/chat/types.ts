@@ -24,9 +24,29 @@ export type ChatListPage = {
 export type ActiveChat = {
   readonly events: readonly MessageStreamEvent[];
   readonly id: string;
+  readonly modelId: string;
   readonly pendingUserMessage: string | null;
   readonly session: ClientSessionState | undefined;
   readonly title: string;
+};
+
+export type ModelRole = "ceo" | "engineering" | "reviewer" | "codex";
+
+export type ModelSettings = Record<ModelRole, string>;
+
+export type GatewayModel = {
+  readonly contextWindow: number | null;
+  readonly description: string;
+  readonly id: string;
+  readonly maxOutputTokens: number | null;
+  readonly name: string;
+  readonly pricing: {
+    readonly cachedInput: string | null;
+    readonly input: string | null;
+    readonly output: string | null;
+  };
+  readonly provider: string;
+  readonly recommended: boolean;
 };
 
 export type SetupStatus = {

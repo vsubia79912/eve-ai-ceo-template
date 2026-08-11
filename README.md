@@ -127,7 +127,7 @@ UPSTASH_REDIS_REST_TOKEN
 Autonomous coding:
 
 ```text
-VERCEL_OIDC_TOKEN              # automatically managed by Vercel
+AI_GATEWAY_API_KEY             # preferred: dedicated key with a hard spend budget
 AI_GATEWAY_API_KEY             # optional non-Vercel fallback
 GITHUB_APP_ID
 GITHUB_APP_INSTALLATION_ID
