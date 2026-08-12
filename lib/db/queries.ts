@@ -345,42 +345,57 @@ export async function persistServerChatEvent(input: {
   readonly sessionId: string;
   readonly userId: string;
 }) {
-  await db.transaction(async (tx) => {
-    const [duplicate] = await tx
-      .select({ id: chatEvent.id })
-      .from(chatEvent)
-      .where(eq(chatEvent.id, input.eventId))
-      .limit(1);
-    if (duplicate) return;
+  const isTerminal = isChatTurnTerminalEvent(input.event);
+  const result = await db.execute(sql`
+    with advanced_chat as (
+      update "chat"
+      set
+        "next_event_index" = "next_event_index" + 1,
+        "pending_user_message" =
+          case when ${isTerminal} then null else "pending_user_message" end,
+        "pending_user_message_created_at" =
+          case when ${isTerminal} then null else "pending_user_message_created_at" end,
+        "eve_session" = jsonb_build_object(
+          'sessionId', ${input.sessionId},
+          'streamIndex', "next_event_index" + 1
+        ),
+        "updated_at" = now()
+      where
+        "id" = ${input.chatId}
+        and "user_id" = ${input.userId}
+        and not exists (
+          select 1 from "chat_event" where "id" = ${input.eventId}
+        )
+      returning "next_event_index"
+    )
+    insert into "chat_event" (
+      "id",
+      "chat_id",
+      "event_index",
+      "event"
+    )
+    select
+      ${input.eventId},
+      ${input.chatId},
+      advanced_chat."next_event_index" - 1,
+      ${JSON.stringify(input.event)}::jsonb
+    from advanced_chat
+    returning "event_index"
+  `);
 
-    const [advanced] = await tx
-      .update(chat)
-      .set({
-        nextEventIndex: sql`${chat.nextEventIndex} + 1`,
-        pendingUserMessage: isChatTurnTerminalEvent(input.event)
-          ? null
-          : chat.pendingUserMessage,
-        pendingUserMessageCreatedAt: isChatTurnTerminalEvent(input.event)
-          ? null
-          : chat.pendingUserMessageCreatedAt,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(chat.id, input.chatId), eq(chat.userId, input.userId)))
-      .returning({ nextEventIndex: chat.nextEventIndex });
-    if (!advanced) throw new Error("Authenticated chat was not found for Eve event persistence.");
+  if (result.rowCount > 0) {
+    return;
+  }
 
-    const eventIndex = advanced.nextEventIndex - 1;
-    await tx.insert(chatEvent).values({
-      chatId: input.chatId,
-      event: input.event,
-      eventIndex,
-      id: input.eventId,
-    });
-    await tx
-      .update(chat)
-      .set({ eveSession: { sessionId: input.sessionId, streamIndex: advanced.nextEventIndex } })
-      .where(eq(chat.id, input.chatId));
-  });
+  const [duplicate] = await db
+    .select({ id: chatEvent.id })
+    .from(chatEvent)
+    .where(eq(chatEvent.id, input.eventId))
+    .limit(1);
+
+  if (!duplicate) {
+    throw new Error("Authenticated chat was not found for eve event persistence.");
+  }
 }
 
 export async function clearChatPendingMessage({
