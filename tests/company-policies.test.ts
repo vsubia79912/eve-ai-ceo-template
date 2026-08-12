@@ -7,7 +7,30 @@ import {
   codingTaskStartBlocker,
   messageExplicitlyRequestsMerge,
   parsePullRequestReference,
+  projectRepositoryAssignmentBlocker,
+  projectRepositoryReassignmentBlocker,
 } from "../lib/company/policies.ts";
+
+test("keeps project repository assignments authoritative", () => {
+  assert.equal(
+    projectRepositoryAssignmentBlocker({
+      assignedRepository: "acme/original",
+      projectName: "Acme",
+      requestedRepository: "acme/other",
+    }),
+    "Project Acme is assigned to acme/original, not acme/other. Change the assignment in GitHub settings first.",
+  );
+  assert.equal(
+    projectRepositoryAssignmentBlocker({
+      assignedRepository: "acme/original",
+      projectName: "Acme",
+      requestedRepository: "acme/original",
+    }),
+    null,
+  );
+  assert.match(projectRepositoryReassignmentBlocker(true) ?? "", /active engineering task/);
+  assert.equal(projectRepositoryReassignmentBlocker(false), null);
+});
 
 test("uses modern separate Codex profile files", () => {
   const base = codexBaseConfig();

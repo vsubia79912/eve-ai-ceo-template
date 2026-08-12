@@ -14,6 +14,21 @@ export function codingTaskStartBlocker(task: { readonly startedAt: Date | null; 
 
 export type PullRequestCoordinates = { readonly number: number; readonly repository: string };
 
+export function projectRepositoryAssignmentBlocker(input: {
+  readonly assignedRepository: string | null;
+  readonly projectName: string;
+  readonly requestedRepository: string;
+}) {
+  if (input.assignedRepository === input.requestedRepository) return null;
+  return `Project ${input.projectName} is assigned to ${input.assignedRepository ?? "no repository"}, not ${input.requestedRepository}. Change the assignment in GitHub settings first.`;
+}
+
+export function projectRepositoryReassignmentBlocker(hasActiveTask: boolean) {
+  return hasActiveTask
+    ? "Finish or cancel the active engineering task before changing repositories."
+    : null;
+}
+
 export function parsePullRequestReference(reference: string): PullRequestCoordinates | { sha: string } {
   const value = reference.trim();
   const url = value.match(/^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)(?:[/?#].*)?$/i);

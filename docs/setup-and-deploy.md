@@ -231,6 +231,24 @@ PORT=3001 pnpm dev -p 3001
 
 Open the matching local URL and make sure the Vercel App contains the same callback URL.
 
+## GitHub Repository Access
+
+Autonomous Engineering uses a least-privilege GitHub App. Configure
+`GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY` in
+the Vercel project, then install the App on only the repositories this company
+may use. Grant Contents read/write and Pull requests read/write.
+
+After deployment, open `/settings/github` to verify the installation, refresh
+the authorized repository list, and assign an authorized repository to each
+project. Use the **Manage on GitHub** link on that page to add or remove
+repository grants; the app never accepts GitHub private keys or personal access
+tokens in the browser.
+
+The CEO's general chat sandbox is intentionally empty and does not receive
+GitHub credentials. Repository access shown in chat and settings comes from a
+server-side inspection tool. Engineering mints short-lived installation tokens
+for authenticated cloning, branch pushes, and pull-request operations.
+
 ## Optional Vercel Connect Integrations
 
 Slack, Notion, Linear, and Sentry are optional and are not part of the required deploy button flow.

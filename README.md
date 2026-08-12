@@ -142,6 +142,9 @@ Vercel Sandbox uses project OIDC automatically on Vercel. For local development,
 `vercel link` and `vercel env pull` provide the development OIDC token used by
 the Sandbox SDK. The selected GitHub installation needs only repository Contents
 read/write and Pull requests read/write; install it only on test repositories.
+Repository grants remain managed by GitHub. Signed-in owners can inspect the
+granted repositories and assign them to projects at `/settings/github`; secrets
+remain server-side and are never copied into the general chat sandbox.
 
 See `.env.example` for optional template connectors, model overrides, and limits.
 

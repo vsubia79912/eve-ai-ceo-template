@@ -34,6 +34,7 @@ export default defineTool({
     if (
       row.project.mergeMode !== "owner_requested" ||
       row.project.mergeMethod !== "squash" ||
+      row.project.repository !== row.task.repository ||
       row.attempt.status !== "REVIEWING" ||
       review?.outcome !== "PASS" ||
       !verification?.length ||

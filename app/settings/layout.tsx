@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, BotIcon, GitPullRequestArrowIcon } from "lucide-react";
+import { ArrowLeftIcon, BotIcon, GitForkIcon, GitPullRequestArrowIcon } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,9 @@ export default function SettingsLayout({ children }: { readonly children: ReactN
       <nav aria-label="Settings" className="my-6 flex flex-wrap gap-2">
         <Button asChild size="sm" variant="outline">
           <Link href="/settings/models"><BotIcon />Model settings</Link>
+        </Button>
+        <Button asChild size="sm" variant="outline">
+          <Link href="/settings/github"><GitForkIcon />GitHub repositories</Link>
         </Button>
         <Button asChild size="sm" variant="outline">
           <Link href="/settings/automation"><GitPullRequestArrowIcon />Automation settings</Link>

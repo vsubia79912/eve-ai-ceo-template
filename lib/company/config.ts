@@ -1,6 +1,6 @@
 import { sign } from "node:crypto";
 import { getVercelOidcToken } from "@vercel/oidc";
-import { DEFAULT_MODEL_SETTINGS } from "@/lib/models";
+import { DEFAULT_MODEL_SETTINGS } from "../models.ts";
 
 function positiveInteger(value: string | undefined, fallback: number) {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -39,6 +39,25 @@ export async function getAiGatewayCredential() {
 }
 
 let cachedGitHubToken: { readonly expiresAt: number; readonly token: string } | null = null;
+
+export type GitHubCredentialMode =
+  | "github_app"
+  | "installation_token"
+  | "personal_access_token"
+  | "unconfigured";
+
+export function getGitHubCredentialMode(): GitHubCredentialMode {
+  if (process.env.GITHUB_APP_INSTALLATION_TOKEN?.trim()) return "installation_token";
+  if (process.env.GITHUB_TOKEN?.trim()) return "personal_access_token";
+  if (
+    process.env.GITHUB_APP_ID?.trim() &&
+    process.env.GITHUB_APP_INSTALLATION_ID?.trim() &&
+    process.env.GITHUB_APP_PRIVATE_KEY?.trim()
+  ) {
+    return "github_app";
+  }
+  return "unconfigured";
+}
 
 function base64Url(value: string | Buffer) {
   return Buffer.from(value).toString("base64url");

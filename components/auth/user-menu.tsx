@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronsUpDownIcon, Loader2Icon, LogOutIcon, SettingsIcon } from "lucide-react";
+import { ChevronsUpDownIcon, GitForkIcon, Loader2Icon, LogOutIcon, SettingsIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { VercelIcon } from "@/components/icons";
@@ -69,6 +69,9 @@ export function UserMenu({
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <Link href="/settings/models"><SettingsIcon className="size-4" />Model settings</Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/settings/github"><GitForkIcon className="size-4" />GitHub repositories</Link>
         </DropdownMenuItem>
         <DropdownMenuItem
           aria-busy={signingOut}

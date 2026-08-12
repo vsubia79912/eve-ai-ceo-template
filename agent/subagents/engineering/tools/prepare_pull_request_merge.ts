@@ -24,6 +24,9 @@ export default defineTool({
     if (row.project.mergeMode !== "owner_requested" || row.project.mergeMethod !== "squash") {
       throw new Error("Owner-requested squash merging is disabled for this project.");
     }
+    if (row.project.repository !== row.task.repository) {
+      throw new Error("The project repository changed after this task was created.");
+    }
     if (row.attempt.status === "MERGED") return { alreadyMerged: true, attempt: row.attempt };
     if (row.attempt.status !== "REQUESTED") {
       throw new Error(`Merge attempt cannot be prepared from ${row.attempt.status}.`);

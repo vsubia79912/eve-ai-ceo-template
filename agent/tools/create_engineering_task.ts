@@ -4,6 +4,7 @@ import { parseGitHubRepository, validateGitRef } from "@/lib/company/repository"
 import { createCompanyTask, taskPublicView } from "@/lib/company/store";
 import { companyConfig } from "@/lib/company/config";
 import { resolveModelAttribute } from "@/lib/models";
+import { assertGitHubRepositoryAccess } from "@/lib/company/github-access";
 
 export default defineTool({
   description: "Create and persist one software-development task before delegating it to Engineering.",
@@ -17,10 +18,11 @@ export default defineTool({
     priority: z.number().int().min(1).max(5).default(3),
   }),
   async execute(input, ctx) {
-    const repository = parseGitHubRepository(input.repository);
-    const baseBranch = validateGitRef(input.baseBranch, "Base branch");
     const ownerId = ctx.session.auth.current?.principalId ?? ctx.session.auth.initiator?.principalId;
     if (!ownerId) throw new Error("An authenticated owner is required to create company tasks.");
+    const repository = parseGitHubRepository(input.repository);
+    const authorizedRepository = await assertGitHubRepositoryAccess(repository.fullName);
+    const baseBranch = validateGitRef(input.baseBranch, "Base branch");
     const created = await createCompanyTask({
       ...input,
       acceptanceCriteria: input.acceptanceCriteria,
@@ -34,7 +36,7 @@ export default defineTool({
         codex: resolveModelAttribute("codex", ctx.session.auth) ?? companyConfig.models.codex,
       },
       ownerId,
-      repository: repository.fullName,
+      repository: authorizedRepository,
     });
     return taskPublicView(created);
   },

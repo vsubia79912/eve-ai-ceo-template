@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, notInArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mergeAttempt, project, task } from "@/lib/db/schema";
+import { projectRepositoryReassignmentBlocker } from "@/lib/company/policies";
 
 export const MERGE_MODES = ["disabled", "owner_requested"] as const;
 export const MERGE_METHODS = ["squash"] as const;
@@ -42,6 +43,45 @@ export async function updateProjectAutomation(input: {
   return updated;
 }
 
+export async function updateProjectRepository(input: {
+  readonly ownerId: string;
+  readonly projectId: string;
+  readonly repository: string;
+}) {
+  const [ownedProject] = await db
+    .select()
+    .from(project)
+    .where(and(eq(project.id, input.projectId), eq(project.ownerId, input.ownerId)))
+    .limit(1);
+  if (!ownedProject) throw new Error("Project was not found for the authenticated owner.");
+  if (ownedProject.repository === input.repository) return ownedProject;
+
+  const [activeTask] = await db
+    .select({ id: task.id })
+    .from(task)
+    .where(
+      and(
+        eq(task.projectId, input.projectId),
+        notInArray(task.status, ["COMPLETED", "FAILED", "CANCELLED"]),
+      ),
+    )
+    .limit(1);
+  const blocker = projectRepositoryReassignmentBlocker(Boolean(activeTask));
+  if (blocker) throw new Error(blocker);
+
+  const [updated] = await db
+    .update(project)
+    .set({
+      mergeMode: "disabled",
+      repository: input.repository,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(project.id, input.projectId), eq(project.ownerId, input.ownerId)))
+    .returning();
+  if (!updated) throw new Error("Project was not found for the authenticated owner.");
+  return updated;
+}
+
 export async function findTrackedPullRequest(input: {
   readonly ownerId: string;
   readonly prNumber: number;
@@ -54,6 +94,7 @@ export async function findTrackedPullRequest(input: {
     .where(
       and(
         eq(project.ownerId, input.ownerId),
+        eq(project.repository, input.repository),
         eq(task.repository, input.repository),
         eq(task.prNumber, input.prNumber),
       ),

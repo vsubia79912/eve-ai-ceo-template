@@ -11,6 +11,7 @@ import {
 } from "@/lib/db/schema";
 import { requireCompanyDatabase } from "@/lib/company/config";
 import { createWorkingBranch } from "@/lib/company/repository";
+import { projectRepositoryAssignmentBlocker } from "@/lib/company/policies";
 
 type TaskPatch = Partial<Omit<typeof task.$inferInsert, "id" | "projectId" | "createdAt">>;
 
@@ -48,6 +49,13 @@ export async function createCompanyTask(input: {
         repository: input.repository,
       })
       .returning();
+  } else {
+    const blocker = projectRepositoryAssignmentBlocker({
+      assignedRepository: projectRow.repository,
+      projectName: input.projectName,
+      requestedRepository: input.repository,
+    });
+    if (blocker) throw new Error(blocker);
   }
   if (!projectRow) throw new Error("Failed to create project.");
 

@@ -3,6 +3,9 @@ import { companyConfig, getAiGatewayCredential, getGitHubToken } from "@/lib/com
 import { parseGitHubRepository, validateGitRef } from "@/lib/company/repository";
 import { addTaskEvent, getCompanyTask, updateCompanyTask } from "@/lib/company/store";
 import { codexBaseConfig, codexCompanyProfile } from "@/lib/company/policies";
+import { cloneGitHubRepository, gitAuthEnvironment } from "@/lib/company/github-git";
+
+export { gitAuthEnvironment } from "@/lib/company/github-git";
 
 const WORKSPACE = "/workspace/repository";
 const COMPANY_HOME = "/workspace/.company";
@@ -76,14 +79,6 @@ async function codexEnvironment() {
   };
 }
 
-export function gitAuthEnvironment(token: string) {
-  return {
-    GIT_CONFIG_COUNT: "1",
-    GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
-    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
-  };
-}
-
 function parseJsonLines(stdout: string) {
   return stdout
     .split(/\r?\n/)
@@ -142,13 +137,13 @@ export async function startCodexTask(sandbox: SandboxSession, taskId: string) {
     workingDirectory: "/workspace",
   });
   if (existing.exitCode !== 0) {
-    const token = process.env.GITHUB_APP_INSTALLATION_TOKEN?.trim() ?? process.env.GITHUB_TOKEN?.trim();
-    const clone = await sandbox.run({
-      command: `git clone --single-branch --branch ${baseBranch} ${repository.cloneUrl} ${WORKSPACE}`,
-      env: token ? gitAuthEnvironment(token) : undefined,
-      workingDirectory: "/workspace",
+    await cloneGitHubRepository({
+      baseBranch,
+      cloneUrl: repository.cloneUrl,
+      getToken: getGitHubToken,
+      sandbox,
+      workspace: WORKSPACE,
     });
-    if (clone.exitCode !== 0) throw new Error(`Repository clone failed: ${clone.stderr}`);
   }
 
   const checkout = await sandbox.run({
