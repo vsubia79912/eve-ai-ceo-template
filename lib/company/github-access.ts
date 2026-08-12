@@ -1,4 +1,5 @@
 import {
+  getGitHubAppJwt,
   getGitHubCredentialMode,
   getGitHubToken,
   type GitHubCredentialMode,
@@ -55,10 +56,11 @@ function baseSnapshot(
   status: GitHubAccessStatus,
   message: string,
   requestedRepository: string | null,
+  installationId?: string,
 ): GitHubAccessSnapshot {
   return {
     credentialMode,
-    managementUrl: null,
+    managementUrl: installationManagementUrl(installationId),
     message,
     permissions: { contents: null, pullRequests: null },
     repositories: [],
@@ -69,6 +71,13 @@ function baseSnapshot(
     totalCount: 0,
     truncated: false,
   };
+}
+
+function installationManagementUrl(installationId?: string) {
+  const normalized = installationId?.trim();
+  return normalized
+    ? `https://github.com/settings/installations/${encodeURIComponent(normalized)}`
+    : null;
 }
 
 function failureStatus(response: Response): GitHubAccessStatus {
@@ -96,6 +105,7 @@ async function githubFetch(fetchImpl: typeof fetch, path: string, token: string)
 }
 
 export async function inspectGitHubAccessWithCredential(input: {
+  readonly appJwt?: string;
   readonly credentialMode: Exclude<GitHubCredentialMode, "unconfigured">;
   readonly fetchImpl?: typeof fetch;
   readonly installationId?: string;
@@ -107,10 +117,19 @@ export async function inspectGitHubAccessWithCredential(input: {
     ? parseGitHubRepository(input.repository).fullName
     : null;
   const installationMode = input.credentialMode !== "personal_access_token";
+  const installationId = input.installationId?.trim();
+  const canReadInstallationMetadata =
+    input.credentialMode === "github_app" && Boolean(input.appJwt && installationId);
 
   try {
     const [metadataResponse, repositoriesResponse] = await Promise.all([
-      installationMode ? githubFetch(fetchImpl, "/installation", input.token) : null,
+      canReadInstallationMetadata
+        ? githubFetch(
+            fetchImpl,
+            `/app/installations/${encodeURIComponent(installationId!)}`,
+            input.appJwt!,
+          )
+        : null,
       githubFetch(
         fetchImpl,
         installationMode
@@ -120,13 +139,18 @@ export async function inspectGitHubAccessWithCredential(input: {
       ),
     ]);
 
-    if (!repositoriesResponse.ok || (metadataResponse && !metadataResponse.ok)) {
-      const failed = !repositoriesResponse.ok ? repositoriesResponse : metadataResponse!;
-      const status = failureStatus(failed);
-      return baseSnapshot(input.credentialMode, status, failureMessage(status), requestedRepository);
+    if (!repositoriesResponse.ok) {
+      const status = failureStatus(repositoriesResponse);
+      return baseSnapshot(
+        input.credentialMode,
+        status,
+        failureMessage(status),
+        requestedRepository,
+        installationId,
+      );
     }
 
-    const metadata = metadataResponse
+    const metadata = metadataResponse?.ok
       ? ((await metadataResponse.json()) as InstallationResponse)
       : null;
     const repositoryPayload = (await repositoriesResponse.json()) as
@@ -163,13 +187,10 @@ export async function inspectGitHubAccessWithCredential(input: {
       : status === "no_repositories"
         ? "GitHub authentication works, but no repositories are available. Select repositories in the GitHub App installation settings."
         : "GitHub authentication is connected.";
-    const installationId = input.installationId?.trim();
 
     return {
       credentialMode: input.credentialMode,
-      managementUrl: installationId
-        ? `https://github.com/settings/installations/${encodeURIComponent(installationId)}`
-        : null,
+      managementUrl: installationManagementUrl(installationId),
       message,
       permissions: {
         contents: metadata?.permissions?.contents ?? null,
@@ -189,6 +210,7 @@ export async function inspectGitHubAccessWithCredential(input: {
       "unavailable",
       failureMessage("unavailable"),
       requestedRepository,
+      installationId,
     );
   }
 }
@@ -204,11 +226,13 @@ export async function inspectGitHubAccess(input: { readonly repository?: string 
       "not_configured",
       "GitHub is not configured. Add the GitHub App credentials to the Vercel project.",
       repository ?? null,
+      process.env.GITHUB_APP_INSTALLATION_ID,
     );
   }
 
   try {
     return await inspectGitHubAccessWithCredential({
+      appJwt: credentialMode === "github_app" ? getGitHubAppJwt() : undefined,
       credentialMode,
       installationId: process.env.GITHUB_APP_INSTALLATION_ID,
       repository,
@@ -220,6 +244,7 @@ export async function inspectGitHubAccess(input: { readonly repository?: string 
       "invalid_credentials",
       failureMessage("invalid_credentials"),
       repository ?? null,
+      process.env.GITHUB_APP_INSTALLATION_ID,
     );
   }
 }

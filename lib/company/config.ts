@@ -63,22 +63,11 @@ function base64Url(value: string | Buffer) {
   return Buffer.from(value).toString("base64url");
 }
 
-export async function getGitHubToken() {
-  const staticToken =
-    process.env.GITHUB_APP_INSTALLATION_TOKEN?.trim() ?? process.env.GITHUB_TOKEN?.trim();
-  if (staticToken) return staticToken;
-
-  if (cachedGitHubToken && cachedGitHubToken.expiresAt > Date.now() + 60_000) {
-    return cachedGitHubToken.token;
-  }
-
+export function getGitHubAppJwt() {
   const appId = process.env.GITHUB_APP_ID?.trim();
-  const installationId = process.env.GITHUB_APP_INSTALLATION_ID?.trim();
   const privateKey = process.env.GITHUB_APP_PRIVATE_KEY?.trim().replace(/\\n/g, "\n");
-  if (!appId || !installationId || !privateKey) {
-    throw new Error(
-      "GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, and GITHUB_APP_PRIVATE_KEY are required to mint a least-privilege installation token.",
-    );
+  if (!appId || !privateKey) {
+    throw new Error("GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY are required for GitHub App authentication.");
   }
 
   const now = Math.floor(Date.now() / 1000);
@@ -88,13 +77,33 @@ export async function getGitHubToken() {
   const signature = sign("RSA-SHA256", Buffer.from(unsignedJwt), privateKey).toString(
     "base64url",
   );
+  return `${unsignedJwt}.${signature}`;
+}
+
+export async function getGitHubToken() {
+  const staticToken =
+    process.env.GITHUB_APP_INSTALLATION_TOKEN?.trim() ?? process.env.GITHUB_TOKEN?.trim();
+  if (staticToken) return staticToken;
+
+  if (cachedGitHubToken && cachedGitHubToken.expiresAt > Date.now() + 60_000) {
+    return cachedGitHubToken.token;
+  }
+
+  const installationId = process.env.GITHUB_APP_INSTALLATION_ID?.trim();
+  if (!installationId) {
+    throw new Error(
+      "GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, and GITHUB_APP_PRIVATE_KEY are required to mint a least-privilege installation token.",
+    );
+  }
+
+  const appJwt = getGitHubAppJwt();
   const response = await fetch(
     `https://api.github.com/app/installations/${encodeURIComponent(installationId)}/access_tokens`,
     {
       method: "POST",
       headers: {
         Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${unsignedJwt}.${signature}`,
+        Authorization: `Bearer ${appJwt}`,
         "X-GitHub-Api-Version": "2022-11-28",
       },
     },

@@ -4,6 +4,7 @@ import { getGitHubCredentialMode } from "../lib/company/config.ts";
 import { inspectGitHubAccessWithCredential } from "../lib/company/github-access.ts";
 
 const TOKEN = "installation-secret-that-must-never-be-returned";
+const APP_JWT = "app-jwt-that-must-never-be-returned";
 
 function json(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -20,7 +21,7 @@ function installationFetch(input: {
   return (async (url: string | URL | Request) => {
     const value = String(url);
     input.requests?.push(value);
-    if (value.endsWith("/installation")) {
+    if (value.includes("/app/installations/")) {
       return input.metadata ?? json({ permissions: { contents: "write", pull_requests: "write" } });
     }
     return input.repositories ?? json({
@@ -38,6 +39,7 @@ function installationFetch(input: {
 test("returns sanitized GitHub App repository and permission metadata", async () => {
   const requests: string[] = [];
   const result = await inspectGitHubAccessWithCredential({
+    appJwt: APP_JWT,
     credentialMode: "github_app",
     fetchImpl: installationFetch({ requests }),
     installationId: "153002460",
@@ -51,10 +53,12 @@ test("returns sanitized GitHub App repository and permission metadata", async ()
   assert.equal(result.managementUrl, "https://github.com/settings/installations/153002460");
   assert.equal(result.repositories[0]?.private, true);
   assert.equal(JSON.stringify(result).includes(TOKEN), false);
+  assert.equal(JSON.stringify(result).includes(APP_JWT), false);
   assert.equal(requests.length, 2);
+  assert.equal(requests[0], "https://api.github.com/app/installations/153002460");
 
   const caseInsensitive = await inspectGitHubAccessWithCredential({
-    credentialMode: "github_app",
+    credentialMode: "installation_token",
     fetchImpl: installationFetch(),
     repository: "VSUBIA79912/EVE-AI-CEO-TEMPLATE",
     token: TOKEN,
@@ -92,10 +96,12 @@ test("classifies empty, missing, truncated, invalid, and rate-limited repository
 
   const invalid = await inspectGitHubAccessWithCredential({
     credentialMode: "github_app",
-    fetchImpl: installationFetch({ metadata: json({}, { status: 401 }) }),
+    fetchImpl: installationFetch({ repositories: json({}, { status: 401 }) }),
+    installationId: "153002460",
     token: TOKEN,
   });
   assert.equal(invalid.status, "invalid_credentials");
+  assert.equal(invalid.managementUrl, "https://github.com/settings/installations/153002460");
 
   const rateLimited = await inspectGitHubAccessWithCredential({
     credentialMode: "github_app",
@@ -105,6 +111,21 @@ test("classifies empty, missing, truncated, invalid, and rate-limited repository
     token: TOKEN,
   });
   assert.equal(rateLimited.status, "unavailable");
+});
+
+test("keeps repositories usable when installation permission metadata is unavailable", async () => {
+  const result = await inspectGitHubAccessWithCredential({
+    appJwt: APP_JWT,
+    credentialMode: "github_app",
+    fetchImpl: installationFetch({ metadata: json({}, { status: 404 }) }),
+    installationId: "153002460",
+    token: TOKEN,
+  });
+
+  assert.equal(result.status, "connected");
+  assert.equal(result.repositories.length, 1);
+  assert.deepEqual(result.permissions, { contents: null, pullRequests: null });
+  assert.equal(result.managementUrl, "https://github.com/settings/installations/153002460");
 });
 
 test("reports an unconfigured credential mode without exposing partial configuration", () => {
