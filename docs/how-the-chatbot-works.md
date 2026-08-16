@@ -378,6 +378,23 @@ index.
 When the async iterator exits, it calls `onFinalize(events)`, which advances the
 browser session state using the events that were actually observed.
 
+### Subagent Activity And Conversation
+
+When the parent stream emits `subagent.called`, `AgentActivityStream` attaches
+to the child session at `/eve/v1/session/:childSessionId/stream`. It repeats the
+same process for nested child calls, which lets the chat show CEO, Engineering,
+and Reviewer activity from their separate durable streams.
+
+The in-chat conversation preview uses only two structured boundaries:
+
+- the subagent call's `input.message`, labeled from parent to child
+- the matching subagent result's `output`, labeled from child to parent
+
+While a result is pending, visible `message.appended` text from the matching
+child turn can appear as a draft reply. Reasoning events, credentials, arbitrary
+tool inputs, and tool results are not included. Long visible messages are capped
+in the UI so a diff-heavy delegation cannot overwhelm the transcript.
+
 ## Sending A Message
 
 Follow-up messages are sent by `AgentChatSession.sendMessage`.

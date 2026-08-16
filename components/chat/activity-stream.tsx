@@ -3,6 +3,7 @@
 import type { MessageStreamEvent } from "eve/client";
 import {
   ActivityIcon,
+  ArrowRightIcon,
   ChevronDownIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -10,9 +11,16 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  buildAgentTranscript,
+  type AgentTranscriptItem,
+} from "@/lib/chat/agent-transcript";
 import { cn } from "@/lib/utils";
 
 const MAX_VISIBLE_EVENTS = 80;
+const MAX_TRANSCRIPT_ITEMS = 24;
+const TRANSCRIPT_COLLAPSED_CHARS = 700;
+const TRANSCRIPT_MAX_CHARS = 4_000;
 const STREAM_OPEN_RETRYABLE_STATUS = new Set([404, 409, 425, 500, 502, 503, 504]);
 
 type ActivitySession = {
@@ -152,6 +160,10 @@ export function AgentActivityStream({
     () => buildActivityRows(sessions).slice(-MAX_VISIBLE_EVENTS),
     [sessions],
   );
+  const transcript = useMemo(
+    () => buildAgentTranscript(sessions).slice(-MAX_TRANSCRIPT_ITEMS),
+    [sessions],
+  );
 
   if (!hasDelegation) return null;
 
@@ -174,6 +186,19 @@ export function AgentActivityStream({
               <SessionChip key={session.id} session={session} />
             ))}
           </div>
+          {transcript.length > 0 ? (
+            <section aria-labelledby="agent-transcript-heading" className="mb-4">
+              <h3 className="mb-2 text-xs font-medium text-foreground" id="agent-transcript-heading">
+                Agent conversation
+              </h3>
+              <div className="space-y-2">
+                {transcript.map((item) => (
+                  <TranscriptMessage item={item} key={item.id} />
+                ))}
+              </div>
+            </section>
+          ) : null}
+          <h3 className="mb-2 text-xs font-medium text-foreground">Event stream</h3>
           <ol aria-label="Agent stream events" className="max-h-80 space-y-1 overflow-y-auto font-mono text-[11px] leading-5">
             {rows.map(({ event, repeats, session }) => (
               <li className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2" key={`${session.id}:${event.meta.id}`}>
@@ -191,12 +216,61 @@ export function AgentActivityStream({
             ))}
           </ol>
           <p className="mt-3 text-[11px] text-muted-foreground">
-            Reasoning text and sensitive payloads are not displayed. Each agent is read from its own eve session stream.
+            Shows delegation messages and returned answers only. Reasoning, credentials, and tool payloads are not displayed.
           </p>
         </div>
       </CollapsibleContent>
     </Collapsible>
   );
+}
+
+function TranscriptMessage({ item }: { readonly item: AgentTranscriptItem }) {
+  const [expanded, setExpanded] = useState(false);
+  const cappedText = capTranscriptText(item.text);
+  const isCollapsible = cappedText.length > TRANSCRIPT_COLLAPSED_CHARS;
+  const visibleText = !expanded && isCollapsible
+    ? `${cappedText.slice(0, TRANSCRIPT_COLLAPSED_CHARS).trimEnd()}...`
+    : cappedText;
+  const wasCapped = item.text.length > TRANSCRIPT_MAX_CHARS;
+
+  return (
+    <article
+      className="rounded-md border border-border/60 bg-background px-3 py-2.5"
+      style={{ marginLeft: `${item.depth * 12}px` }}
+    >
+      <header className="flex flex-wrap items-center gap-1.5 text-xs">
+        <span className="font-medium text-foreground">{formatAgentName(item.from)}</span>
+        <ArrowRightIcon aria-hidden="true" className="size-3 text-muted-foreground" />
+        <span className="font-medium text-foreground">{formatAgentName(item.to)}</span>
+        <span className="text-muted-foreground">
+          {item.kind === "delegation" ? "delegation" : item.kind === "draft" ? "draft reply" : "reply"}
+        </span>
+        <time className="ml-auto text-[10px] text-muted-foreground/70" dateTime={item.at}>
+          {formatEventTime(item.at)}
+        </time>
+      </header>
+      <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-foreground/85">
+        {visibleText}
+      </p>
+      {isCollapsible ? (
+        <button
+          className="mt-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+          onClick={() => setExpanded((value) => !value)}
+          type="button"
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      ) : null}
+      {expanded && wasCapped ? (
+        <p className="mt-1 text-[10px] text-muted-foreground">Long message preview capped at 4,000 characters.</p>
+      ) : null}
+    </article>
+  );
+}
+
+function capTranscriptText(text: string) {
+  if (text.length <= TRANSCRIPT_MAX_CHARS) return text;
+  return `${text.slice(0, TRANSCRIPT_MAX_CHARS).trimEnd()}...`;
 }
 
 function SessionChip({ session }: { readonly session: ActivitySession }) {
