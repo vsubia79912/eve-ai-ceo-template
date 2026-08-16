@@ -1652,6 +1652,7 @@ export function AgentChatSession({
                 ))}
                 <AgentActivityStream
                   events={displayEvents}
+                  key={displayChatId}
                   rootSessionId={
                     persistedSessionRef.current?.state?.sessionId ?? activeChat?.session?.sessionId
                   }

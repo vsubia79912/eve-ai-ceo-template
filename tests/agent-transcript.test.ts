@@ -53,7 +53,7 @@ test("attributes delegation and response text to the correct agents", () => {
           subagentName: "engineering",
         },
         sequence: 0,
-        status: "completed",
+        status: "failed",
         stepIndex: 0,
         turnId: "turn-root",
       },
@@ -76,6 +76,64 @@ test("attributes delegation and response text to the correct agents", () => {
       from: "engineering",
       kind: "response",
       text: "The draft PR is ready.",
+      to: "ceo",
+    },
+  ]);
+});
+
+test("builds a durable transcript when subagent.called was not persisted", () => {
+  const rootEvents: MessageStreamEvent[] = [
+    stamped({
+      data: {
+        actions: [{
+          callId: "call-engineering",
+          description: "Investigate the issue.",
+          input: { message: "Find the cause and report back." },
+          kind: "subagent-call",
+          name: "engineering",
+          nodeId: "engineering",
+          subagentName: "engineering",
+        }],
+        sequence: 0,
+        stepIndex: 0,
+        turnId: "turn-root",
+      },
+      type: "actions.requested",
+    }, "evt-request", "2026-08-16T12:00:00.000Z"),
+    stamped({
+      data: {
+        result: {
+          callId: "call-engineering",
+          isError: true,
+          kind: "subagent-result",
+          origin: "dispatch",
+          output: "The persistence layer dropped the control event.",
+          subagentName: "engineering",
+        },
+        sequence: 0,
+        status: "failed",
+        stepIndex: 0,
+        turnId: "turn-root",
+      },
+      type: "action.result",
+    }, "evt-result", "2026-08-16T12:01:00.000Z"),
+  ];
+
+  const transcript = buildAgentTranscript([
+    { depth: 0, events: rootEvents, id: "ceo-session", name: "ceo" },
+  ]);
+
+  assert.deepEqual(transcript.map(({ from, kind, text, to }) => ({ from, kind, text, to })), [
+    {
+      from: "ceo",
+      kind: "delegation",
+      text: "Find the cause and report back.",
+      to: "engineering",
+    },
+    {
+      from: "engineering",
+      kind: "response",
+      text: "The persistence layer dropped the control event.",
       to: "ceo",
     },
   ]);

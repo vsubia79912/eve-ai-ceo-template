@@ -54,7 +54,7 @@ export function AgentActivityStream({
     called: StampedSubagentCalledEvent,
     parentDepth: number,
   ) {
-    const callKey = called.meta.id || `${called.data.callId}:${called.data.childSessionId}`;
+    const callKey = `${called.data.callId}:${called.data.childSessionId}`;
     if (callEventsSeenRef.current.has(callKey)) return;
     callEventsSeenRef.current.add(callKey);
 
@@ -128,15 +128,12 @@ export function AgentActivityStream({
 
   useEffect(() => {
     const streams = activeStreamsRef.current;
-    callEventsSeenRef.current.clear();
-    nextIndexesRef.current.clear();
-    setChildSessions(new Map());
 
     return () => {
       for (const controller of streams.values()) controller.abort();
       streams.clear();
     };
-  }, [rootSessionId]);
+  }, []);
 
   useEffect(() => {
     for (const event of events) {
@@ -155,7 +152,6 @@ export function AgentActivityStream({
     };
     return [root, ...childSessions.values()];
   }, [childSessions, events, rootSessionId]);
-  const hasDelegation = sessions.length > 1;
   const rows = useMemo(
     () => buildActivityRows(sessions).slice(-MAX_VISIBLE_EVENTS),
     [sessions],
@@ -164,6 +160,7 @@ export function AgentActivityStream({
     () => buildAgentTranscript(sessions).slice(-MAX_TRANSCRIPT_ITEMS),
     [sessions],
   );
+  const hasDelegation = transcript.length > 0 || sessions.length > 1;
 
   if (!hasDelegation) return null;
 
