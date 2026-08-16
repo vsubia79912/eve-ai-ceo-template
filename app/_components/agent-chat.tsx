@@ -49,6 +49,8 @@ import {
   saveClientChatSnapshot,
   skipClientChatAuthorization,
 } from "@/lib/chat/persistence-client";
+import { createFragmentedChatRecoveryContext } from "@/lib/chat/recovered-context";
+import { mergeRestoredSessionState } from "@/lib/chat/session-state";
 import type { ActiveChat, SetupStatus } from "@/lib/chat/types";
 import { DEFAULT_MODEL_SETTINGS } from "@/lib/models";
 
@@ -703,6 +705,9 @@ export function AgentChatSession({
     () => {},
   );
   const persistedSessionRef = useRef<PersistedClientSession | null>(null);
+  const restoredChatId = activeChat?.id;
+  const restoredModelId = activeChat?.modelId;
+  const restoredSession = activeChat?.session;
   persistedSessionRef.current ??= createPersistedClientSession({
     headers: {
       "x-eve-chat-id": activeChat?.id ?? chatId ?? "",
@@ -871,9 +876,7 @@ export function AgentChatSession({
       }
 
       try {
-        if (storageMode === "browser") {
-          await saveClientChatSession(storageMode, { chatId, session });
-        }
+        await saveClientChatSession(storageMode, { chatId, session });
       } catch (error) {
         setClientError(
           error instanceof Error ? error.message : "Failed to save session state.",
@@ -1112,11 +1115,15 @@ export function AgentChatSession({
 
       try {
         startFinalizingTurn();
+        const connectionContext = createConnectionClientContext(
+          enabledConnections,
+          setupStatus.connectionsAvailable,
+        );
+        const recoveryContext = createFragmentedChatRecoveryContext(displayEvents);
         await agent.send(message, {
-          clientContext: createConnectionClientContext(
-            enabledConnections,
-            setupStatus.connectionsAvailable,
-          ),
+          clientContext: recoveryContext
+            ? [connectionContext, recoveryContext]
+            : connectionContext,
         });
       } catch (error) {
         if (isAbortError(error)) {
@@ -1138,6 +1145,7 @@ export function AgentChatSession({
       agent,
       clearLocalPendingUserMessage,
       disabledReason,
+      displayEvents,
       enabledConnections,
       isSetupReady,
       isTurnBlocked,
@@ -1314,6 +1322,24 @@ export function AgentChatSession({
   useEffect(() => {
     activeChatIdRef.current = activeChatId;
   }, [activeChatId]);
+
+  useEffect(() => {
+    const persistedSession = persistedSessionRef.current;
+
+    if (!persistedSession || !restoredChatId || !restoredModelId) return;
+
+    persistedSession.setHeaders({
+      "x-eve-chat-id": restoredChatId,
+      ...clientModelHeaders(restoredModelId),
+    });
+    persistedSession.setState(
+      mergeRestoredSessionState(persistedSession.state, restoredSession),
+    );
+  }, [
+    restoredChatId,
+    restoredModelId,
+    restoredSession,
+  ]);
 
   useEffect(() => {
     const nextChatId = activeChat?.id ?? chatId ?? null;

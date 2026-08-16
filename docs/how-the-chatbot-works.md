@@ -322,6 +322,19 @@ When `send(message, options)` or `respond(inputResponses, options)` is called:
 The app never talks directly to a third-party model endpoint. It talks to eve's
 same-origin session API, which is mounted by `withEve(nextConfig)`.
 
+When a historical chat snapshot arrives after the client component mounts, the
+saved `ClientSessionState` is merged into the already-created browser session
+handle before another message can be sent. This is separate from rendering the
+saved events: the events restore the transcript, while the session ID restores
+the model's durable conversation context. A newly issued session ID is also
+persisted immediately in both browser and database storage modes.
+
+Chats fragmented by older clients are detected when their persisted
+`session.waiting` events contain more than one durable continuation token. For
+those chats only, a bounded recent display transcript is supplied as recovery
+context on subsequent turns. Healthy single-session chats do not receive this
+extra context.
+
 ### Streaming
 
 The stream reader is `streamSessionEvents`.
