@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gte, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, lt, or, sql, type SQL } from "drizzle-orm";
 import type { ClientSessionState, MessageStreamEvent } from "eve/client";
 import { isChatTurnTerminalEvent } from "@/lib/chat/events";
+import { recentChatWindowStart } from "@/lib/chat/history-window";
 import type { ActiveChat, ChatListItem, ChatListPage, UserModelPreferences } from "@/lib/chat/types";
 import { createFallbackTitle, DEFAULT_CHAT_TITLE } from "@/lib/chat/title";
 import { buildEveSessionJson } from "@/lib/db/chat-event-persistence";
@@ -158,46 +159,94 @@ export async function createChat(
 }
 
 export async function getChatForUser(chatId: string, userId: string): Promise<ActiveChat | null> {
-  const [row] = await db
-    .select({
-      id: chat.id,
-      title: chat.title,
-      eveSession: chat.eveSession,
-      nextEventIndex: chat.nextEventIndex,
-      pendingUserMessage: chat.pendingUserMessage,
-      pendingUserMessageCreatedAt: chat.pendingUserMessageCreatedAt,
-      modelId: chat.modelId,
-      projectId: chat.projectId,
-      projectName: project.name,
-      repository: chat.repository,
-    })
-    .from(chat)
-    .leftJoin(project, eq(chat.projectId, project.id))
-    .where(and(eq(chat.id, chatId), eq(chat.userId, userId)))
-    .limit(1);
+  type ChatHistoryRow = {
+    readonly eveSession: ClientSessionState | null;
+    readonly events: Array<{
+      readonly createdAt: string;
+      readonly event: MessageStreamEvent;
+      readonly eventIndex: number;
+    }>;
+    readonly id: string;
+    readonly modelId: string;
+    readonly nextEventIndex: number;
+    readonly pendingUserMessage: string | null;
+    readonly pendingUserMessageCreatedAt: string | null;
+    readonly projectId: string | null;
+    readonly projectName: string | null;
+    readonly repository: string | null;
+    readonly title: string;
+  };
+  const result = await db.execute(sql<ChatHistoryRow>`
+    with owned_chat as (
+      select
+        c."id",
+        c."title",
+        c."eve_session" as "eveSession",
+        c."next_event_index" as "nextEventIndex",
+        c."pending_user_message" as "pendingUserMessage",
+        c."pending_user_message_created_at" as "pendingUserMessageCreatedAt",
+        c."model_id" as "modelId",
+        c."project_id" as "projectId",
+        p."name" as "projectName",
+        c."repository"
+      from "chat" c
+      left join "project" p on p."id" = c."project_id"
+      where c."id" = ${chatId} and c."user_id" = ${userId}
+      limit 1
+    )
+    select
+      owned_chat.*,
+      coalesce(history."events", '[]'::jsonb) as "events"
+    from owned_chat
+    left join lateral (
+      select jsonb_agg(
+        jsonb_build_object(
+          'createdAt', selected."created_at",
+          'event', selected."event",
+          'eventIndex', selected."event_index"
+        ) order by selected."event_index"
+      ) as "events"
+      from (
+        select event_row."created_at", event_row."event", event_row."event_index"
+        from "chat_event" event_row
+        where
+          event_row."chat_id" = owned_chat."id"
+          and (
+            owned_chat."pendingUserMessage" is not null
+            or event_row."event"->>'type' not in (
+              'message.appended',
+              'reasoning.appended',
+              'action.partial'
+            )
+          )
+        order by event_row."event_index" desc
+        limit ${CHAT_EVENT_HISTORY_PAGE_SIZE + 1}
+      ) selected
+    ) history on true
+  `);
+  const row = result.rows[0] as ChatHistoryRow | undefined;
 
   if (!row) {
     return null;
   }
 
-  const settledHistoryFilter = row.pendingUserMessage
-    ? undefined
-    : sql<boolean>`${chatEvent.event}->>'type' not in ('message.appended', 'reasoning.appended', 'action.partial')`;
-  const historyPage = row.pendingUserMessage
-    ? await db
-        .select({ createdAt: chatEvent.createdAt, event: chatEvent.event, eventIndex: chatEvent.eventIndex })
-        .from(chatEvent)
-        .where(eq(chatEvent.chatId, chatId))
-        .orderBy(asc(chatEvent.eventIndex))
-    : await getHistoricalEventPage(chatId, settledHistoryFilter);
-  const hasOlderHistory = !row.pendingUserMessage && historyPage.length > CHAT_EVENT_HISTORY_PAGE_SIZE;
-  const events = row.pendingUserMessage
-    ? historyPage
-    : historyPage.slice(0, CHAT_EVENT_HISTORY_PAGE_SIZE).reverse();
+  const historyPage = row.events.map((eventRow) => ({
+    ...eventRow,
+    createdAt: new Date(eventRow.createdAt),
+  }));
+  const pageHasOlderHistory = historyPage.length > CHAT_EVENT_HISTORY_PAGE_SIZE;
+  const chronologicalEvents = pageHasOlderHistory ? historyPage.slice(1) : historyPage;
+  const windowStart = recentChatWindowStart(
+    chronologicalEvents.map((eventRow) => eventRow.event),
+  );
+  const events = chronologicalEvents.slice(windowStart);
+  const hasOlderHistory = pageHasOlderHistory || windowStart > 0;
 
   const eventValues = events.map((eventRow) => eventRow.event);
   const recoveredSession = inferLegacyChatSession(eventValues, row.nextEventIndex);
-  const pendingMessageCreatedAt = row.pendingUserMessageCreatedAt;
+  const pendingMessageCreatedAt = row.pendingUserMessageCreatedAt
+    ? new Date(row.pendingUserMessageCreatedAt)
+    : null;
   const hasCurrentTurnCompleted = Boolean(
     pendingMessageCreatedAt &&
     events.some(

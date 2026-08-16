@@ -13,6 +13,11 @@ import {
   skipChatAuthorization,
 } from "@/lib/db/queries";
 import { assertChatMessageLength } from "@/lib/chat/limits";
+import {
+  invalidateChatSnapshot,
+  refreshChatSnapshot,
+} from "@/lib/chat/server-history-cache";
+import { isChatSessionBoundaryEvent } from "@/lib/chat/events";
 import { RateLimitError, enforceRateLimit } from "@/lib/rate-limit";
 import { getServerViewer } from "@/lib/session";
 import { getSetupStatus } from "@/lib/setup";
@@ -94,6 +99,7 @@ export async function saveChatSnapshotAction(input: {
     session: input.session,
     userId: viewer.id,
   });
+  await refreshChatSnapshot(input.chatId, viewer.id);
 
   return { ok: true };
 }
@@ -106,11 +112,13 @@ export async function markChatPendingMessageAction(input: {
 
   assertChatMessageLength(input.message);
 
-  return markChatPendingMessage({
+  const result = await markChatPendingMessage({
     chatId: input.chatId,
     message: input.message,
     userId: viewer.id,
   });
+  await invalidateChatSnapshot(input.chatId, viewer.id);
+  return result;
 }
 
 export async function clearChatPendingMessageAction(chatId: string) {
@@ -120,6 +128,7 @@ export async function clearChatPendingMessageAction(chatId: string) {
     chatId,
     userId: viewer.id,
   });
+  await invalidateChatSnapshot(chatId, viewer.id);
 
   return { ok: true };
 }
@@ -131,12 +140,14 @@ export async function skipChatAuthorizationAction(input: {
 }) {
   const viewer = await requireViewer();
 
-  return skipChatAuthorization({
+  const result = await skipChatAuthorization({
     chatId: input.chatId,
     events: input.events,
     session: input.session,
     userId: viewer.id,
   });
+  await refreshChatSnapshot(input.chatId, viewer.id);
+  return result;
 }
 
 export async function appendChatEventAction(input: {
@@ -152,6 +163,11 @@ export async function appendChatEventAction(input: {
     eventIndex: input.eventIndex,
     userId: viewer.id,
   });
+  if (isChatSessionBoundaryEvent(input.event)) {
+    await refreshChatSnapshot(input.chatId, viewer.id);
+  } else {
+    await invalidateChatSnapshot(input.chatId, viewer.id);
+  }
 
   return { ok: true };
 }
@@ -167,6 +183,7 @@ export async function saveChatSessionStateAction(input: {
     session: input.session,
     userId: viewer.id,
   });
+  await invalidateChatSnapshot(input.chatId, viewer.id);
 
   return { ok: true };
 }
@@ -175,6 +192,7 @@ export async function deleteChatAction(chatId: string) {
   const viewer = await requireViewer();
 
   await deleteChatForUser(chatId, viewer.id);
+  await invalidateChatSnapshot(chatId, viewer.id);
 
   return listChatsByUser(viewer.id);
 }

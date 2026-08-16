@@ -36,6 +36,11 @@ import {
   deleteClientChat,
   listClientChats,
 } from "@/lib/chat/persistence-client";
+import {
+  clearUserChatHistoryCache,
+  deleteChatHistoryCache,
+  prefetchChatHistory,
+} from "@/lib/chat/history-cache";
 import type { ChatListItem, ProjectSummary, SetupStatus, Viewer } from "@/lib/chat/types";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +79,7 @@ export function AgentChatShell({
   });
   const cursorRef = useRef(initialNextCursor);
   const activeChatIdRef = useRef(activeChatId);
+  const previousViewerIdRef = useRef(viewer?.id ?? null);
   const setupReady = setupStatusState.appReady;
   const router = useRouter();
 
@@ -168,15 +174,23 @@ export function AgentChatShell({
     setMobileSidebarOpen(false);
 
     if (chatId !== undefined) {
+      if (chatId) performance.mark("eve:chat-selected");
       activeChatIdRef.current = chatId;
       setActiveChatId(chatId);
     }
   }, []);
 
+  const handlePrefetchChat = useCallback((chatId: string) => {
+    router.prefetch(`/chat/${chatId}`);
+    if (!viewerState || setupStatusState.storageMode !== "database") return;
+    void prefetchChatHistory(viewerState.id, chatId);
+  }, [router, setupStatusState.storageMode, viewerState]);
+
   const handleDeleteChat = useCallback(
     async (chatId: string) => {
       try {
         await deleteClientChat(setupStatusState.storageMode, chatId);
+        if (viewerState) await deleteChatHistoryCache(viewerState.id, chatId);
         removeChat(chatId);
 
         if (activeChatIdRef.current === chatId) {
@@ -187,8 +201,38 @@ export function AgentChatShell({
         // errors are shown by the chat surface where the user is working.
       }
     },
-    [removeChat, setupStatusState.storageMode, startNewChat],
+    [removeChat, setupStatusState.storageMode, startNewChat, viewerState],
   );
+
+  useEffect(() => {
+    const previousViewerId = previousViewerIdRef.current;
+    const nextViewerId = viewerState?.id ?? null;
+    if (previousViewerId && previousViewerId !== nextViewerId) {
+      void clearUserChatHistoryCache(previousViewerId);
+    }
+    previousViewerIdRef.current = nextViewerId;
+  }, [viewerState]);
+
+  useEffect(() => {
+    if (!viewerState || setupStatusState.storageMode !== "database" || history.length === 0) {
+      return;
+    }
+
+    const recentChatIds = history.slice(0, 3).map((chat) => chat.id);
+    const run = () => {
+      for (const chatId of recentChatIds) void prefetchChatHistory(viewerState.id, chatId);
+    };
+    const idleWindow = window as Window & {
+      cancelIdleCallback?: (id: number) => void;
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+    };
+    if (idleWindow.requestIdleCallback && idleWindow.cancelIdleCallback) {
+      const idleId = idleWindow.requestIdleCallback(run, { timeout: 2_000 });
+      return () => idleWindow.cancelIdleCallback?.(idleId);
+    }
+    const timeoutId = globalThis.setTimeout(run, 500);
+    return () => globalThis.clearTimeout(timeoutId);
+  }, [history, setupStatusState.storageMode, viewerState]);
 
   const loadMoreChats = useCallback(async () => {
     const cursor = cursorRef.current;
@@ -320,6 +364,7 @@ export function AgentChatShell({
       onDeleteChat={handleDeleteChat}
       onLoadMoreChats={loadMoreChats}
       onNavigate={handleSidebarNavigate}
+      onPrefetchChat={handlePrefetchChat}
       onNewChat={startNewChat}
       onSignIn={() => requestSignIn()}
       onToggleSidebar={() => setDesktopSidebarOpenPersisted(false)}
@@ -417,6 +462,7 @@ export function AgentChatShell({
               onDeleteChat={handleDeleteChat}
               onLoadMoreChats={loadMoreChats}
               onNavigate={handleSidebarNavigate}
+              onPrefetchChat={handlePrefetchChat}
               onNewChat={startNewChat}
               onSignIn={() => requestSignIn()}
               setupStatus={setupStatusState}

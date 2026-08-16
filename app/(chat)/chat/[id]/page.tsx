@@ -4,9 +4,11 @@ import { connection } from "next/server";
 import { AgentChatRouteSync } from "@/app/_components/agent-chat-route-sync";
 import { SessionChatPage } from "@/app/_components/session-chat-page";
 import { isProvisionalChatId } from "@/lib/chat/provisional-chat";
-import { getChatForUser } from "@/lib/db/queries";
-import { getServerViewer } from "@/lib/session";
-import { getSetupStatus } from "@/lib/setup";
+import {
+  getChatRequestSetupStatus,
+  getChatRequestViewer,
+} from "@/lib/chat/request-context";
+import { getChatSnapshotForUser } from "@/lib/chat/server-history-cache";
 
 export default async function ChatPage({
   params,
@@ -34,14 +36,15 @@ async function ExistingChat({
   }
 
   await connection();
-  const setupStatus = await getSetupStatus();
-  const viewer = await getServerViewer(setupStatus);
+  const setupStatus = await getChatRequestSetupStatus();
+  const viewer = await getChatRequestViewer();
   const appReady = setupStatus.appReady;
   const usesDatabase = setupStatus.storageMode === "database";
-  const activeChat =
+  const snapshot =
     viewer && appReady && usesDatabase
-      ? await getChatForUser(chatId, viewer.id)
+      ? await getChatSnapshotForUser(chatId, viewer.id)
       : null;
+  const activeChat = snapshot?.chat ?? null;
 
   if (viewer && appReady && usesDatabase && !activeChat) {
     notFound();

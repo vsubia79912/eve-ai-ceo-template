@@ -2,10 +2,13 @@ import { Suspense, type ReactNode } from "react";
 import { connection } from "next/server";
 import { AgentChatBootstrapSync } from "@/app/_components/agent-chat-bootstrap-sync";
 import { AgentChatShell } from "@/app/_components/agent-chat-shell";
+import {
+  getChatRequestSetupStatus,
+  getChatRequestViewer,
+} from "@/lib/chat/request-context";
 import { listChatsPageByUser } from "@/lib/db/queries";
 import { listProjects } from "@/lib/company/projects";
-import { getServerViewer } from "@/lib/session";
-import { getInitialSetupStatus, getSetupStatus } from "@/lib/setup";
+import { getInitialSetupStatus } from "@/lib/setup";
 
 export default function ChatLayout({ children }: { readonly children: ReactNode }) {
   const setupStatus = getInitialSetupStatus();
@@ -30,8 +33,8 @@ export default function ChatLayout({ children }: { readonly children: ReactNode 
 
 async function ResolvedChatBootstrap() {
   await connection();
-  const setupStatus = await getSetupStatus();
-  const viewer = await getServerViewer(setupStatus);
+  const setupStatus = await getChatRequestSetupStatus();
+  const viewer = await getChatRequestViewer();
   const appReady = setupStatus.appReady;
   const [initialChatsPage, projects] =
     viewer && appReady && setupStatus.storageMode === "database"

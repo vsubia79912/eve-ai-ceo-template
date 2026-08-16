@@ -19,7 +19,7 @@ const RATE_LIMIT_ENV_GROUPS = [
   ["KV_REST_API_URL", "KV_REST_API_TOKEN"],
 ] as const;
 
-const SCHEMA_READINESS_TTL_MS = 30_000;
+const SCHEMA_FAILURE_RETRY_TTL_MS = 30_000;
 let schemaReadinessCache: {
   readonly expiresAt: number;
   readonly value: Promise<boolean>;
@@ -63,8 +63,13 @@ function getCachedDatabaseSchemaReady() {
   if (schemaReadinessCache && schemaReadinessCache.expiresAt > now) {
     return schemaReadinessCache.value;
   }
-  const value = isDatabaseSchemaReady();
-  schemaReadinessCache = { expiresAt: now + SCHEMA_READINESS_TTL_MS, value };
+  const value = isDatabaseSchemaReady().then((ready) => {
+    if (ready && schemaReadinessCache?.value === value) {
+      schemaReadinessCache = { expiresAt: Number.POSITIVE_INFINITY, value };
+    }
+    return ready;
+  });
+  schemaReadinessCache = { expiresAt: now + SCHEMA_FAILURE_RETRY_TTL_MS, value };
   return value;
 }
 

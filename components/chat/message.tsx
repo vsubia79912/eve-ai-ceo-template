@@ -45,7 +45,7 @@ export function AgentMessage({
   return (
     <article
       className={cn(
-        "group flex w-full min-w-0",
+        "group flex w-full min-w-0 [contain-intrinsic-size:auto_80px] [content-visibility:auto]",
         isUser ? "justify-end" : "justify-start",
         message.metadata?.optimistic ? "opacity-90" : undefined,
       )}

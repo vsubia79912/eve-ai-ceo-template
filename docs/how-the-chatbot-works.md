@@ -146,6 +146,18 @@ passes the loaded `ActiveChat` into `AgentChatSession`.
 This is why the top bar, sidebar, and composer can stay stable while the chat
 body itself waits for data.
 
+Historical chats also use a local-first acceleration path. The browser keeps a
+20-chat memory LRU and a user-scoped IndexedDB cache capped at 50 chats or
+50 MB. A cached event snapshot paints immediately, while `GET /api/chats/:id`
+reconciles it with an ETag in the background. Sidebar hover, focus, touch, and
+idle prefetch populate the same cache before navigation.
+
+The API reads settled snapshots from Upstash when available and falls back to
+Postgres, which remains authoritative. Stream events invalidate the Upstash
+snapshot once per active turn, and an eve session boundary rebuilds it. The
+initial Postgres query returns the latest 50 rendered messages at a turn
+boundary in one round trip; older messages remain cursor-paginated.
+
 ## Sidebar State And Pagination
 
 The sidebar is owned by `AgentChatShell`.

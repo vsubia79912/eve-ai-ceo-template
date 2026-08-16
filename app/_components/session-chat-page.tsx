@@ -30,6 +30,15 @@ import {
   createClientChat,
   getClientChat,
 } from "@/lib/chat/persistence-client";
+import {
+  chooseAuthoritativeChat,
+  getMemoryChatSnapshot,
+  readChatHistoryCache,
+  reconcileChatHistory,
+  writeChatHistoryCache,
+  type CachedChatSnapshot,
+} from "@/lib/chat/history-cache";
+import { eventCountBucket, reportChatLoadMetric } from "@/lib/chat/load-performance";
 import type { ActiveChat, SetupStatus } from "@/lib/chat/types";
 import { DEFAULT_MODEL_SETTINGS } from "@/lib/models";
 
@@ -47,19 +56,31 @@ export function SessionChatPage({
   readonly children: ReactNode;
 }) {
   const { setActiveChatId, setupStatus, touchChat, updateChatContextInHistory, viewer } = useChatShell();
-  const [activeChat, setActiveChat] = useState<ActiveChat | null>(null);
+  const viewerId = viewer?.id ?? null;
+  const [initialCachedSnapshot] = useState(() =>
+    viewerId ? getMemoryChatSnapshot(viewerId, chatId) : null,
+  );
+  const [activeChat, setActiveChat] = useState<ActiveChat | null>(
+    initialCachedSnapshot?.chat ?? null,
+  );
   const [draft, setDraft] = useState("");
   const [controllerReady, setControllerReady] = useState(false);
   const [controllerStatus, setControllerStatus] = useState(IDLE_CONTROLLER_STATUS);
-  const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
+  const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(
+    initialCachedSnapshot?.chat.pendingUserMessage ?? null,
+  );
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [clientError, setClientError] = useState<string | null>(null);
+  const [cacheNotice, setCacheNotice] = useState<string | null>(null);
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const controllerRef = useRef<AgentChatController | null>(null);
   const currentChatIdRef = useRef(chatId);
   const pendingConsumedRef = useRef(false);
   const provisionalCreateStartedRef = useRef(new Set<string>());
   const settledPendingMessagesRef = useRef(new Set<string>());
+  const cachedSnapshotRef = useRef<CachedChatSnapshot | null>(initialCachedSnapshot);
+  const viewerIdRef = useRef(viewerId);
+  viewerIdRef.current = viewerId;
   const isProvisionalChat = isProvisionalChatId(chatId);
   const router = useRouter();
   const toastError = clientError && dismissedError !== clientError ? clientError : null;
@@ -73,12 +94,26 @@ export function SessionChatPage({
     controllerRef.current = null;
     setControllerReady(false);
     setControllerStatus(IDLE_CONTROLLER_STATUS);
-    setActiveChat(null);
+    const cached = viewerIdRef.current
+      ? getMemoryChatSnapshot(viewerIdRef.current, chatId)
+      : null;
+    cachedSnapshotRef.current = cached;
+    setActiveChat(cached?.chat ?? null);
     setDraft("");
-    setPendingUserMessage(null);
+    setPendingUserMessage(cached?.chat.pendingUserMessage ?? null);
+    setCacheNotice(null);
     pendingConsumedRef.current = false;
     settledPendingMessagesRef.current = new Set();
   }, [chatId]);
+
+  useEffect(() => {
+    if (!viewerId) return;
+    const cached = getMemoryChatSnapshot(viewerId, chatId);
+    if (!cached) return;
+    cachedSnapshotRef.current = cached;
+    setActiveChat((current) => chooseAuthoritativeChat(current, cached.chat));
+    setPendingUserMessage((current) => cached.chat.pendingUserMessage ?? current);
+  }, [chatId, viewerId]);
 
   useEffect(() => {
     const restoredPendingMessage = readPendingChatMessage(chatId);
@@ -175,7 +210,9 @@ export function SessionChatPage({
           return current;
         }
 
-        return detail.activeChat;
+        return detail.activeChat
+          ? chooseAuthoritativeChat(current, detail.activeChat)
+          : detail.activeChat;
       });
       setPendingUserMessage((current) => {
         if (detail.activeChat) {
@@ -204,6 +241,99 @@ export function SessionChatPage({
       window.removeEventListener(CHAT_ROUTE_SYNC_EVENT, handleRouteSync);
     };
   }, [chatId]);
+
+  useEffect(() => {
+    if (
+      !viewerId ||
+      !setupStatus.appReady ||
+      isProvisionalChat ||
+      setupStatus.storageMode !== "database"
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const now = performance.now();
+    const selectedAt = performance.getEntriesByName("eve:chat-selected").at(-1)?.startTime;
+    const startedAt = selectedAt !== undefined && now - selectedAt < 30_000 ? selectedAt : now;
+
+    void (async () => {
+      let cached = cachedSnapshotRef.current;
+      let cachedPaintMs: number | null = cached ? performance.now() - startedAt : null;
+
+      if (!cached) {
+        cached = await readChatHistoryCache(viewerId, chatId);
+        if (cancelled) return;
+        if (cached) {
+          cachedSnapshotRef.current = cached;
+          cachedPaintMs = performance.now() - startedAt;
+          setActiveChat((current) => chooseAuthoritativeChat(current, cached!.chat));
+        }
+      }
+
+      try {
+        const result = await reconcileChatHistory(viewerId, chatId, cached);
+        if (cancelled) return;
+        performance.mark("eve:chat-server-received");
+        cachedSnapshotRef.current = {
+          cachedAt: Date.now(),
+          chat: result.chat,
+          etag: result.etag,
+          source: "memory",
+        };
+        setActiveChat((current) => chooseAuthoritativeChat(current, result.chat));
+        setPendingUserMessage(() =>
+          getRestorablePendingUserMessage(
+            result.chat.pendingUserMessage,
+            settledPendingMessagesRef.current,
+          ),
+        );
+        setCacheNotice(null);
+        setClientError(null);
+        performance.mark("eve:chat-reconciled");
+        reportChatLoadMetric({
+          cacheSource: cached?.source ?? "network",
+          cachedPaintMs,
+          eventCountBucket: eventCountBucket(result.chat.events.length),
+          reconcileMs: performance.now() - startedAt,
+          success: true,
+        });
+      } catch (error) {
+        if (cancelled) return;
+        if (cached) {
+          setCacheNotice("Showing saved copy while the latest version reconnects.");
+        } else {
+          setClientError(error instanceof Error ? error.message : "Failed to load chat history.");
+        }
+        reportChatLoadMetric({
+          cacheSource: cached?.source ?? "miss",
+          cachedPaintMs,
+          eventCountBucket: eventCountBucket(cached?.chat.events.length ?? 0),
+          reconcileMs: performance.now() - startedAt,
+          success: false,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chatId, isProvisionalChat, setupStatus.appReady, setupStatus.storageMode, viewerId]);
+
+  useEffect(() => {
+    if (!viewerId || !activeChat || setupStatus.storageMode !== "database") return;
+    performance.mark("eve:chat-transcript-painted");
+    void writeChatHistoryCache(
+      viewerId,
+      activeChat,
+      cachedSnapshotRef.current?.etag ?? null,
+    );
+  }, [activeChat, setupStatus.storageMode, viewerId]);
+
+  useEffect(() => {
+    if (!activeChat || !controllerReady) return;
+    performance.mark("eve:chat-composer-ready");
+  }, [activeChat, controllerReady]);
 
   useEffect(() => {
     if (
@@ -372,13 +502,14 @@ export function SessionChatPage({
 
   const handleActiveChatUpdated = useCallback((nextActiveChat: ActiveChat) => {
     setActiveChat(nextActiveChat);
+    if (viewerId) void writeChatHistoryCache(viewerId, nextActiveChat);
     setPendingUserMessage(
       getRestorablePendingUserMessage(
         nextActiveChat.pendingUserMessage,
         settledPendingMessagesRef.current,
       ),
     );
-  }, []);
+  }, [viewerId]);
 
   const updateContext = useCallback(async (
     projectId: string | null,
@@ -401,6 +532,7 @@ export function SessionChatPage({
         : null;
       const next = { ...activeChat, projectId, projectName, repository };
       setActiveChat(next);
+      if (viewerId) void writeChatHistoryCache(viewerId, next);
       updateChatContextInHistory({
         id: next.id,
         projectId,
@@ -413,7 +545,7 @@ export function SessionChatPage({
     } catch (error) {
       setClientError(error instanceof Error ? error.message : "Failed to update chat context.");
     }
-  }, [activeChat, setupStatus.storageMode, updateChatContextInHistory]);
+  }, [activeChat, setupStatus.storageMode, updateChatContextInHistory, viewerId]);
 
   const loadEarlier = useCallback(async () => {
     if (!activeChat?.hasOlderHistory || activeChat.historyStartIndex === null || loadingEarlier) return;
@@ -462,6 +594,11 @@ export function SessionChatPage({
           message={toastError}
           onDismiss={() => setDismissedError(toastError)}
         />
+      ) : null}
+      {cacheNotice ? (
+        <div className="mx-auto mt-3 w-full max-w-2xl px-4 text-xs text-muted-foreground sm:px-6">
+          {cacheNotice}
+        </div>
       ) : null}
 
       <AgentChatSession

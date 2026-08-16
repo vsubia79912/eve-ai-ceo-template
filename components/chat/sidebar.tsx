@@ -44,6 +44,7 @@ export function ChatSidebar({
   onDeleteChat,
   onLoadMoreChats,
   onNavigate,
+  onPrefetchChat,
   onNewChat,
   onSignIn,
   onToggleSidebar,
@@ -60,6 +61,7 @@ export function ChatSidebar({
   readonly onDeleteChat: (chatId: string) => void | Promise<void>;
   readonly onLoadMoreChats?: () => void | Promise<void>;
   readonly onNavigate?: (chatId?: string | null) => void;
+  readonly onPrefetchChat?: (chatId: string) => void;
   readonly onNewChat: () => void;
   readonly onSignIn?: () => void;
   readonly onToggleSidebar?: () => void;
@@ -183,6 +185,7 @@ export function ChatSidebar({
             label="Recent"
             onDeleteChat={onDeleteChat}
             onNavigate={onNavigate}
+            onPrefetchChat={onPrefetchChat}
           />
         ) : null}
         {projects.map((project) => {
@@ -195,6 +198,7 @@ export function ChatSidebar({
               label={project.name}
               onDeleteChat={onDeleteChat}
               onNavigate={onNavigate}
+              onPrefetchChat={onPrefetchChat}
             />
           ) : null;
         })}
@@ -249,12 +253,14 @@ function ChatGroup({
   label,
   onDeleteChat,
   onNavigate,
+  onPrefetchChat,
 }: {
   readonly activeChatId: string | null;
   readonly chats: readonly ChatListItem[];
   readonly label: string;
   readonly onDeleteChat: (chatId: string) => void | Promise<void>;
   readonly onNavigate?: (chatId?: string | null) => void;
+  readonly onPrefetchChat?: (chatId: string) => void;
 }) {
   return (
     <div className="mb-3">
@@ -273,6 +279,9 @@ function ChatGroup({
               className="flex h-8 min-w-0 items-center px-2 pr-8 text-sm"
               href={`/chat/${chat.id}`}
               onClick={() => onNavigate?.(chat.id)}
+              onFocus={() => onPrefetchChat?.(chat.id)}
+              onMouseEnter={() => onPrefetchChat?.(chat.id)}
+              onTouchStart={() => onPrefetchChat?.(chat.id)}
             >
               <span className="block truncate">{chat.title}</span>
               <span className="sr-only">Updated {formatHistoryTime(chat.updatedAt)}</span>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { assertGitHubRepositoryAccess } from "@/lib/company/github-access";
+import { refreshChatSnapshot } from "@/lib/chat/server-history-cache";
 import { updateChatContext } from "@/lib/company/projects";
 import { getServerViewer } from "@/lib/session";
 import { getSetupStatus } from "@/lib/setup";
@@ -28,6 +29,7 @@ export async function PATCH(
       projectId: input.projectId?.trim() || null,
       repository,
     });
+    await refreshChatSnapshot(id, viewer.id);
     return NextResponse.json({ chat });
   } catch (error) {
     return NextResponse.json(
