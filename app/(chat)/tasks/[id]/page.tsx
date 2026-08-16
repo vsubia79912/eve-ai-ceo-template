@@ -17,7 +17,7 @@ export default async function TaskDetailPage({ params }: { readonly params: Prom
     <main className="mx-auto w-full max-w-5xl overflow-y-auto px-6 py-10">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="mb-2 text-xs font-medium tracking-widest text-muted-foreground uppercase">Engineering task</p>
+          <p className="mb-2 text-xs font-medium tracking-widest text-muted-foreground uppercase">Engineering run</p>
           <h1 className="text-2xl font-semibold">{task.title}</h1>
           <p className="mt-2 text-sm text-muted-foreground">{task.repository}</p>
         </div>

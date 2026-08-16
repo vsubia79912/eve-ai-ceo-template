@@ -33,9 +33,15 @@ export function createLocalChat(pendingUserMessage?: string, modelId?: string) {
   const now = new Date().toISOString();
   const chat: StoredChat = {
     events: [],
+    hasOlderHistory: false,
+    historyStartIndex: null,
     id: crypto.randomUUID(),
     modelId: modelId ?? DEFAULT_MODEL_SETTINGS.ceo,
+    nextEventIndex: 0,
     pendingUserMessage: pendingMessage,
+    projectId: null,
+    projectName: null,
+    repository: null,
     session: undefined,
     title: pendingMessage ? createFallbackTitle(pendingMessage) : DEFAULT_CHAT_TITLE,
     updatedAt: now,
@@ -93,7 +99,7 @@ export function appendLocalChatEvent({
       events[eventIndex] = event;
     }
 
-    return { ...chat, events };
+    return { ...chat, events, nextEventIndex: Math.max(chat.nextEventIndex ?? 0, eventIndex + 1) };
   });
 }
 
@@ -113,6 +119,7 @@ export function saveLocalChatSnapshot({
   updateChat(chatId, (chat) => ({
     ...chat,
     events,
+    nextEventIndex: events.length,
     pendingUserMessage: null,
     session,
     updatedAt: new Date().toISOString(),
@@ -131,6 +138,7 @@ export function skipLocalChatAuthorization({
   const chat = updateChat(chatId, (current) => ({
     ...current,
     events: [...current.events, ...events],
+    nextEventIndex: current.events.length + events.length,
     pendingUserMessage: null,
     session,
     updatedAt: new Date().toISOString(),
@@ -214,9 +222,15 @@ function isStoredChat(value: unknown): value is StoredChat {
 function toActiveChat(chat: StoredChat): ActiveChat {
   return {
     events: chat.events,
+    hasOlderHistory: false,
+    historyStartIndex: chat.events.length ? 0 : null,
     id: chat.id,
     modelId: chat.modelId ?? DEFAULT_MODEL_SETTINGS.ceo,
+    nextEventIndex: chat.nextEventIndex ?? chat.events.length,
     pendingUserMessage: chat.pendingUserMessage ?? null,
+    projectId: chat.projectId ?? null,
+    projectName: chat.projectName ?? null,
+    repository: chat.repository ?? null,
     session: chat.session,
     title: chat.title,
   };
@@ -225,6 +239,9 @@ function toActiveChat(chat: StoredChat): ActiveChat {
 function toListItem(chat: StoredChat): ChatListItem {
   return {
     id: chat.id,
+    projectId: chat.projectId ?? null,
+    projectName: chat.projectName ?? null,
+    repository: chat.repository ?? null,
     title: chat.title,
     updatedAt: chat.updatedAt,
   };

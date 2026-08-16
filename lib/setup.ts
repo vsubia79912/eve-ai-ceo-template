@@ -19,6 +19,12 @@ const RATE_LIMIT_ENV_GROUPS = [
   ["KV_REST_API_URL", "KV_REST_API_TOKEN"],
 ] as const;
 
+const SCHEMA_READINESS_TTL_MS = 30_000;
+let schemaReadinessCache: {
+  readonly expiresAt: number;
+  readonly value: Promise<boolean>;
+} | null = null;
+
 function hasEnv(name: string) {
   return Boolean(process.env[name]?.trim());
 }
@@ -46,10 +52,20 @@ export async function getSetupStatus(): Promise<SetupStatus> {
   const fullEnvironmentReady =
     databaseConfigured && isAuthConfigured() && isRateLimitConfigured();
   const databaseSchemaReady = fullEnvironmentReady
-    ? await isDatabaseSchemaReady()
+    ? await getCachedDatabaseSchemaReady()
     : false;
 
   return createSetupStatus({ databaseSchemaReady });
+}
+
+function getCachedDatabaseSchemaReady() {
+  const now = Date.now();
+  if (schemaReadinessCache && schemaReadinessCache.expiresAt > now) {
+    return schemaReadinessCache.value;
+  }
+  const value = isDatabaseSchemaReady();
+  schemaReadinessCache = { expiresAt: now + SCHEMA_READINESS_TTL_MS, value };
+  return value;
 }
 
 export async function isAppConfigured() {

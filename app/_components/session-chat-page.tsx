@@ -16,6 +16,11 @@ import {
 import { useChatShell } from "@/app/_components/chat-shell-context";
 import { ChatComposer } from "@/components/chat/composer";
 import {
+  ChatContextControls,
+  NEW_CHAT_PROJECT_KEY,
+  NEW_CHAT_REPOSITORY_KEY,
+} from "@/components/chat/chat-context-controls";
+import {
   clearPendingChatMessage,
   isProvisionalChatId,
   readPendingChatMessage,
@@ -41,12 +46,13 @@ export function SessionChatPage({
   readonly chatId: string;
   readonly children: ReactNode;
 }) {
-  const { setActiveChatId, setupStatus, touchChat, viewer } = useChatShell();
+  const { setActiveChatId, setupStatus, touchChat, updateChatContextInHistory, viewer } = useChatShell();
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null);
   const [draft, setDraft] = useState("");
   const [controllerReady, setControllerReady] = useState(false);
   const [controllerStatus, setControllerStatus] = useState(IDLE_CONTROLLER_STATUS);
   const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [clientError, setClientError] = useState<string | null>(null);
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const controllerRef = useRef<AgentChatController | null>(null);
@@ -109,7 +115,11 @@ export function SessionChatPage({
         const created = await createClientChat(setupStatus.storageMode, {
           modelId: window.sessionStorage.getItem("eve-chat-model") ?? DEFAULT_MODEL_SETTINGS.ceo,
           pendingUserMessage: pendingMessage,
+          projectId: window.sessionStorage.getItem(NEW_CHAT_PROJECT_KEY),
+          repository: window.sessionStorage.getItem(NEW_CHAT_REPOSITORY_KEY),
         });
+        window.sessionStorage.removeItem(NEW_CHAT_PROJECT_KEY);
+        window.sessionStorage.removeItem(NEW_CHAT_REPOSITORY_KEY);
 
         if (currentChatIdRef.current !== chatId) {
           return;
@@ -196,7 +206,12 @@ export function SessionChatPage({
   }, [chatId]);
 
   useEffect(() => {
-    if (!viewer || !setupStatus.appReady || isProvisionalChat) {
+    if (
+      !viewer ||
+      !setupStatus.appReady ||
+      isProvisionalChat ||
+      setupStatus.storageMode === "database"
+    ) {
       return;
     }
 
@@ -365,12 +380,74 @@ export function SessionChatPage({
     );
   }, []);
 
+  const updateContext = useCallback(async (
+    projectId: string | null,
+    repository: string | null,
+  ) => {
+    if (!activeChat || setupStatus.storageMode !== "database") return;
+    try {
+      const response = await fetch(`/api/chats/${encodeURIComponent(activeChat.id)}/context`, {
+        body: JSON.stringify({ projectId, repository }),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      });
+      const body = await response.json() as {
+        readonly chat?: { readonly projectName?: string | null };
+        readonly error?: string;
+      };
+      if (!response.ok) throw new Error(body.error ?? "Failed to update chat context.");
+      const projectName = projectId
+        ? body.chat?.projectName ?? null
+        : null;
+      const next = { ...activeChat, projectId, projectName, repository };
+      setActiveChat(next);
+      updateChatContextInHistory({
+        id: next.id,
+        projectId,
+        projectName,
+        repository,
+        title: next.title,
+        updatedAt: new Date().toISOString(),
+      });
+      setClientError(null);
+    } catch (error) {
+      setClientError(error instanceof Error ? error.message : "Failed to update chat context.");
+    }
+  }, [activeChat, setupStatus.storageMode, updateChatContextInHistory]);
+
+  const loadEarlier = useCallback(async () => {
+    if (!activeChat?.hasOlderHistory || activeChat.historyStartIndex === null || loadingEarlier) return;
+    setLoadingEarlier(true);
+    try {
+      const response = await fetch(
+        `/api/chats/${encodeURIComponent(activeChat.id)}/events?before=${activeChat.historyStartIndex}`,
+      );
+      const body = await response.json() as {
+        readonly error?: string;
+        readonly events?: ActiveChat["events"];
+        readonly hasOlderHistory?: boolean;
+        readonly historyStartIndex?: number | null;
+      };
+      if (!response.ok) throw new Error(body.error ?? "Failed to load earlier messages.");
+      setActiveChat((current) => current ? {
+        ...current,
+        events: [...(body.events ?? []), ...current.events],
+        hasOlderHistory: body.hasOlderHistory ?? false,
+        historyStartIndex: body.historyStartIndex ?? current.historyStartIndex,
+      } : current);
+    } catch (error) {
+      setClientError(error instanceof Error ? error.message : "Failed to load earlier messages.");
+    } finally {
+      setLoadingEarlier(false);
+    }
+  }, [activeChat, loadingEarlier]);
+
   const composerDisabled =
     !setupStatus.appReady ||
     isLoadingChat ||
     Boolean(pendingUserMessage) ||
     controllerStatus.isDisabled;
-  const sessionInstanceKey = activeChat ? `${chatId}:loaded` : `${chatId}:loading`;
+  const sessionInstanceKey = chatId;
   const composerDisabledReason = getSessionComposerDisabledReason({
     controllerStatus,
     isLoadingChat,
@@ -391,6 +468,8 @@ export function SessionChatPage({
         activeChat={activeChat}
         chatId={chatId}
         key={sessionInstanceKey}
+        isLoadingEarlier={loadingEarlier}
+        onLoadEarlier={loadEarlier}
         onActiveChatUpdated={handleActiveChatUpdated}
         onPendingUserMessageSettled={handlePendingUserMessageSettled}
         onControllerChange={handleControllerChange}
@@ -399,6 +478,17 @@ export function SessionChatPage({
 
       <div className="shrink-0 pb-4 sm:pb-6">
         <div className="mx-auto w-full max-w-2xl px-4 sm:px-6">
+          {activeChat ? (
+            <div className="mb-2">
+              <ChatContextControls
+                disabled={controllerStatus.isBusy}
+                onProjectChange={(projectId) => void updateContext(projectId, activeChat.repository)}
+                onRepositoryChange={(repository) => void updateContext(activeChat.projectId, repository)}
+                projectId={activeChat.projectId}
+                repository={activeChat.repository}
+              />
+            </div>
+          ) : null}
           <ChatComposer
             disabled={composerDisabled}
             disabledReason={composerDisabledReason}

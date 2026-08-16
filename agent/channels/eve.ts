@@ -25,12 +25,16 @@ export default eveChannel({
       codex: headerModel(request, "codex"),
     };
     let ceo = headerModel(request, "ceo");
+    const chatContext: string[] = [];
 
     if (chatId && userId) {
       const runtime = await getChatRuntimeContext(chatId, userId).catch(() => null);
       if (runtime) {
         settings = runtime.settings;
         ceo = runtime.chat.modelId;
+        if (runtime.chat.projectName) chatContext.push(`Project: ${runtime.chat.projectName}`);
+        if (runtime.chat.projectInstructions) chatContext.push(`Project instructions: ${runtime.chat.projectInstructions}`);
+        if (runtime.chat.repository) chatContext.push(`Selected repository: ${runtime.chat.repository}`);
       } else if (process.env.DATABASE_URL) {
         throw new Error("Chat not found or does not belong to the authenticated user.");
       }
@@ -55,7 +59,7 @@ export default eveChannel({
     });
     return {
       auth,
-      context: [`Effective models: ${JSON.stringify(resolved)}`],
+      context: [`Effective models: ${JSON.stringify(resolved)}`, ...chatContext],
     };
   },
   uploadPolicy: "disabled",

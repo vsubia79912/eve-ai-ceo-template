@@ -35,6 +35,7 @@ import {
 import { IntegrationsMenu } from "@/components/chat/integrations-menu";
 import { AgentMessage } from "@/components/chat/message";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { hasOpenChatTurn, isChatSessionBoundaryEvent } from "@/lib/chat/events";
 import { getChatMessageLengthError } from "@/lib/chat/limits";
@@ -48,9 +49,8 @@ import {
   saveClientChatSnapshot,
   skipClientChatAuthorization,
 } from "@/lib/chat/persistence-client";
-import type { ActiveChat, SetupStatus, Viewer } from "@/lib/chat/types";
+import type { ActiveChat, SetupStatus } from "@/lib/chat/types";
 import { DEFAULT_MODEL_SETTINGS } from "@/lib/models";
-import { cn } from "@/lib/utils";
 
 type AgentSnapshot = EveAgentStoreSnapshot<EveMessageData>;
 type PersistedClientSession = {
@@ -644,6 +644,8 @@ export function AgentChatSession({
   onActiveChatUpdated,
   onPendingUserMessageSettled,
   onControllerChange,
+  onLoadEarlier,
+  isLoadingEarlier = false,
   pendingUserMessage,
 }: {
   readonly activeChat: ActiveChat | null;
@@ -655,6 +657,8 @@ export function AgentChatSession({
     controller: AgentChatController | null,
     status: AgentChatControllerStatus,
   ) => void;
+  readonly onLoadEarlier?: () => void | Promise<void>;
+  readonly isLoadingEarlier?: boolean;
   readonly pendingUserMessage?: string | null;
 }) {
   const {
@@ -683,7 +687,7 @@ export function AgentChatSession({
   } = usePendingUserMessage();
   const [skippingAuthorizationKey, setSkippingAuthorizationKey] = useState<string | null>(null);
   const activeChatIdRef = useRef(activeChat?.id ?? chatId ?? null);
-  const eventIndexRef = useRef(activeChat?.events.length ?? 0);
+  const eventIndexRef = useRef(activeChat?.nextEventIndex ?? activeChat?.events.length ?? 0);
   const eventIndexChatIdRef = useRef(activeChat?.id ?? chatId ?? null);
   const knownInitialEventsRef = useRef<readonly MessageStreamEvent[]>(
     activeChat?.events ?? [],
@@ -765,20 +769,29 @@ export function AgentChatSession({
         if (storageMode === "browser") {
           await saveClientChatSnapshot(storageMode, { chatId, events, session });
         }
-        eventIndexRef.current = events.length;
+        if (storageMode === "browser") eventIndexRef.current = events.length;
         knownInitialEventsRef.current = events;
         streamEventsRef.current = [];
         setStreamEvents([]);
         touchChat({
           id: chatId,
+          projectId: activeChat?.projectId ?? null,
+          projectName: activeChat?.projectName ?? null,
+          repository: activeChat?.repository ?? null,
           title: currentTitleRef.current,
           updatedAt: new Date().toISOString(),
         });
         onActiveChatUpdated?.({
           events,
+          hasOlderHistory: activeChat?.hasOlderHistory ?? false,
+          historyStartIndex: activeChat?.historyStartIndex ?? null,
           id: chatId,
           modelId: activeChat?.modelId ?? DEFAULT_MODEL_SETTINGS.ceo,
+          nextEventIndex: eventIndexRef.current,
           pendingUserMessage: null,
+          projectId: activeChat?.projectId ?? null,
+          projectName: activeChat?.projectName ?? null,
+          repository: activeChat?.repository ?? null,
           session,
           title: currentTitleRef.current,
         });
@@ -791,6 +804,12 @@ export function AgentChatSession({
       }
     },
     [
+      activeChat?.hasOlderHistory,
+      activeChat?.historyStartIndex,
+      activeChat?.modelId,
+      activeChat?.projectId,
+      activeChat?.projectName,
+      activeChat?.repository,
       finishFinalizingTurn,
       onActiveChatUpdated,
       onPendingUserMessageSettled,
@@ -1110,6 +1129,12 @@ export function AgentChatSession({
       }
     },
     [
+      activeChat?.hasOlderHistory,
+      activeChat?.historyStartIndex,
+      activeChat?.modelId,
+      activeChat?.projectId,
+      activeChat?.projectName,
+      activeChat?.repository,
       agent,
       clearLocalPendingUserMessage,
       disabledReason,
@@ -1239,9 +1264,15 @@ export function AgentChatSession({
         touchChat(result.chat);
         onActiveChatUpdated?.({
           events: skippedEvents,
+          hasOlderHistory: activeChat?.hasOlderHistory ?? false,
+          historyStartIndex: activeChat?.historyStartIndex ?? null,
           id: chatId,
           modelId: activeChat?.modelId ?? DEFAULT_MODEL_SETTINGS.ceo,
+          nextEventIndex: eventIndexRef.current,
           pendingUserMessage: null,
+          projectId: activeChat?.projectId ?? null,
+          projectName: activeChat?.projectName ?? null,
+          repository: activeChat?.repository ?? null,
           session: nextSession,
           title: currentTitleRef.current,
         });
@@ -1268,6 +1299,7 @@ export function AgentChatSession({
       }
     },
     [
+      activeChat,
       agent,
       displayEvents,
       onActiveChatUpdated,
@@ -1286,7 +1318,7 @@ export function AgentChatSession({
   useEffect(() => {
     const nextChatId = activeChat?.id ?? chatId ?? null;
     const nextTitle = activeChat?.title ?? "New chat";
-    const nextEventIndex = activeChat?.events.length ?? 0;
+    const nextEventIndex = activeChat?.nextEventIndex ?? activeChat?.events.length ?? 0;
 
     setActiveChatId(nextChatId);
     activeChatIdRef.current = nextChatId;
@@ -1302,15 +1334,16 @@ export function AgentChatSession({
       clearLocalPendingUserMessage();
     } else if (!isTurnBlocked) {
       eventIndexRef.current = Math.max(eventIndexRef.current, nextEventIndex);
-      if (activeChat) {
+      if (activeChat?.events) {
         knownInitialEventsRef.current = activeChat.events;
       }
     }
     setCurrentTitle(nextTitle);
     currentTitleRef.current = nextTitle;
   }, [
-    activeChat?.events.length,
+    activeChat?.events,
     activeChat?.id,
+    activeChat?.nextEventIndex,
     activeChat?.title,
     chatId,
     clearLocalPendingUserMessage,
@@ -1417,20 +1450,29 @@ export function AgentChatSession({
             session: session.state,
           });
         }
-        eventIndexRef.current = allEvents.length;
+        if (storageMode === "browser") eventIndexRef.current = allEvents.length;
         knownInitialEventsRef.current = allEvents;
         resumedEventsRef.current = [];
         setResumedEvents([]);
         touchChat({
           id: activeChat.id,
+          projectId: activeChat.projectId,
+          projectName: activeChat.projectName,
+          repository: activeChat.repository,
           title: currentTitleRef.current,
           updatedAt: new Date().toISOString(),
         });
         onActiveChatUpdated?.({
           events: allEvents,
+          hasOlderHistory: activeChat.hasOlderHistory,
+          historyStartIndex: activeChat.historyStartIndex,
           id: activeChat.id,
           modelId: activeChat.modelId,
+          nextEventIndex: eventIndexRef.current,
           pendingUserMessage: null,
+          projectId: activeChat.projectId,
+          projectName: activeChat.projectName,
+          repository: activeChat.repository,
           session: session.state,
           title: currentTitleRef.current,
         });
@@ -1457,7 +1499,13 @@ export function AgentChatSession({
     };
   }, [
     activeChat?.events,
+    activeChat?.hasOlderHistory,
+    activeChat?.historyStartIndex,
     activeChat?.id,
+    activeChat?.modelId,
+    activeChat?.projectId,
+    activeChat?.projectName,
+    activeChat?.repository,
     activeChat?.session,
     onActiveChatUpdated,
     onPendingUserMessageSettled,
@@ -1539,6 +1587,18 @@ export function AgentChatSession({
           ) : (
             <ChatConversation>
               <ChatConversationContent>
+                {activeChat?.hasOlderHistory && onLoadEarlier ? (
+                  <Button
+                    className="mx-auto"
+                    disabled={isLoadingEarlier}
+                    onClick={() => void onLoadEarlier()}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    {isLoadingEarlier ? <Spinner /> : null}
+                    Load earlier messages
+                  </Button>
+                ) : null}
                 {visibleMessages.map((message, index) => (
                   <AgentMessage
                     canRespond={

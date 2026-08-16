@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gte, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, or, sql, type SQL } from "drizzle-orm";
 import type { ClientSessionState, MessageStreamEvent } from "eve/client";
 import { isChatTurnTerminalEvent } from "@/lib/chat/events";
 import type { ActiveChat, ChatListItem, ChatListPage, UserModelPreferences } from "@/lib/chat/types";
 import { createFallbackTitle, DEFAULT_CHAT_TITLE } from "@/lib/chat/title";
-import { chat, chatEvent, userModelSettings } from "@/lib/db/schema";
+import { chat, chatEvent, project, userModelSettings } from "@/lib/db/schema";
 import { db } from "@/lib/db/client";
 import {
   DEFAULT_MODEL_SETTINGS,
@@ -16,6 +16,7 @@ import {
 import type { ModelSettings } from "@/lib/chat/types";
 
 const CHAT_HISTORY_PAGE_SIZE = 20;
+const CHAT_EVENT_HISTORY_PAGE_SIZE = 300;
 
 function encodeChatCursor(updatedAt: Date, id: string) {
   return `${updatedAt.toISOString()}::${id}`;
@@ -52,10 +53,14 @@ export async function listChatsPageByUser(
   const rows = await db
     .select({
       id: chat.id,
+      projectId: chat.projectId,
+      projectName: project.name,
+      repository: chat.repository,
       title: chat.title,
       updatedAt: chat.updatedAt,
     })
     .from(chat)
+    .leftJoin(project, eq(chat.projectId, project.id))
     .where(
       and(
         eq(chat.userId, userId),
@@ -77,6 +82,9 @@ export async function listChatsPageByUser(
   return {
     items: pageRows.map((row) => ({
       id: row.id,
+      projectId: row.projectId,
+      projectName: row.projectName,
+      repository: row.repository,
       title: row.title,
       updatedAt: row.updatedAt.toISOString(),
     })),
@@ -89,15 +97,31 @@ export async function createChat(
   {
     modelId,
     pendingUserMessage,
+    projectId,
+    repository,
   }: {
     readonly modelId?: string;
     readonly pendingUserMessage?: string;
+    readonly projectId?: string | null;
+    readonly repository?: string | null;
   } = {},
 ) {
   const pendingMessage = pendingUserMessage?.trim();
   const userSettings = await getUserModelSettings(userId);
   const selectedModel = await validateModelId(modelId ?? userSettings.ceo);
   const pendingMessageCreatedAt = pendingMessage ? new Date() : null;
+  let projectName: string | null = null;
+  let selectedRepository = repository?.trim() || null;
+  if (projectId) {
+    const [ownedProject] = await db
+      .select({ name: project.name, repository: project.repository })
+      .from(project)
+      .where(and(eq(project.id, projectId), eq(project.ownerId, userId)))
+      .limit(1);
+    if (!ownedProject) throw new Error("Project was not found.");
+    projectName = ownedProject.name;
+    selectedRepository ??= ownedProject.repository;
+  }
   const [row] = await db
     .insert(chat)
     .values({
@@ -105,11 +129,15 @@ export async function createChat(
       modelId: selectedModel,
       pendingUserMessage: pendingMessage || null,
       pendingUserMessageCreatedAt: pendingMessageCreatedAt,
+      projectId: projectId ?? null,
+      repository: selectedRepository,
       title: pendingMessage ? createFallbackTitle(pendingMessage) : DEFAULT_CHAT_TITLE,
       userId,
     })
     .returning({
       id: chat.id,
+      projectId: chat.projectId,
+      repository: chat.repository,
       title: chat.title,
       updatedAt: chat.updatedAt,
     });
@@ -120,6 +148,9 @@ export async function createChat(
 
   return {
     id: row.id,
+    projectId: row.projectId,
+    projectName,
+    repository: row.repository,
     title: row.title,
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -135,8 +166,12 @@ export async function getChatForUser(chatId: string, userId: string): Promise<Ac
       pendingUserMessage: chat.pendingUserMessage,
       pendingUserMessageCreatedAt: chat.pendingUserMessageCreatedAt,
       modelId: chat.modelId,
+      projectId: chat.projectId,
+      projectName: project.name,
+      repository: chat.repository,
     })
     .from(chat)
+    .leftJoin(project, eq(chat.projectId, project.id))
     .where(and(eq(chat.id, chatId), eq(chat.userId, userId)))
     .limit(1);
 
@@ -144,15 +179,20 @@ export async function getChatForUser(chatId: string, userId: string): Promise<Ac
     return null;
   }
 
-  const events = await db
-    .select({
-      createdAt: chatEvent.createdAt,
-      event: chatEvent.event,
-      eventIndex: chatEvent.eventIndex,
-    })
-    .from(chatEvent)
-    .where(eq(chatEvent.chatId, chatId))
-    .orderBy(asc(chatEvent.eventIndex));
+  const settledHistoryFilter = row.pendingUserMessage
+    ? undefined
+    : sql<boolean>`${chatEvent.event}->>'type' not in ('message.appended', 'reasoning.appended', 'action.partial')`;
+  const historyPage = row.pendingUserMessage
+    ? await db
+        .select({ createdAt: chatEvent.createdAt, event: chatEvent.event, eventIndex: chatEvent.eventIndex })
+        .from(chatEvent)
+        .where(eq(chatEvent.chatId, chatId))
+        .orderBy(asc(chatEvent.eventIndex))
+    : await getHistoricalEventPage(chatId, settledHistoryFilter);
+  const hasOlderHistory = !row.pendingUserMessage && historyPage.length > CHAT_EVENT_HISTORY_PAGE_SIZE;
+  const events = row.pendingUserMessage
+    ? historyPage
+    : historyPage.slice(0, CHAT_EVENT_HISTORY_PAGE_SIZE).reverse();
 
   const eventValues = events.map((eventRow) => eventRow.event);
   const recoveredSession = inferLegacyChatSession(eventValues, row.nextEventIndex);
@@ -168,12 +208,57 @@ export async function getChatForUser(chatId: string, userId: string): Promise<Ac
 
   return {
     events: eventValues,
+    hasOlderHistory,
+    historyStartIndex: events[0]?.eventIndex ?? null,
     id: row.id,
     modelId: row.modelId,
+    nextEventIndex: row.nextEventIndex,
     pendingUserMessage: hasCurrentTurnCompleted ? null : row.pendingUserMessage,
+    projectId: row.projectId,
+    projectName: row.projectName,
+    repository: row.repository,
     session: row.eveSession ?? recoveredSession,
     title: row.title,
   };
+}
+
+export async function getOlderChatEvents(input: {
+  readonly before: number;
+  readonly chatId: string;
+  readonly userId: string;
+}) {
+  const [ownedChat] = await db
+    .select({ id: chat.id })
+    .from(chat)
+    .where(and(eq(chat.id, input.chatId), eq(chat.userId, input.userId)))
+    .limit(1);
+  if (!ownedChat) throw new Error("Chat not found.");
+
+  const filter = sql<boolean>`${chatEvent.event}->>'type' not in ('message.appended', 'reasoning.appended', 'action.partial')`;
+  const page = await getHistoricalEventPage(input.chatId, filter, input.before);
+  const rows = page.slice(0, CHAT_EVENT_HISTORY_PAGE_SIZE).reverse();
+  return {
+    events: rows.map((row) => row.event),
+    hasOlderHistory: page.length > CHAT_EVENT_HISTORY_PAGE_SIZE,
+    historyStartIndex: rows[0]?.eventIndex ?? null,
+  };
+}
+
+async function getHistoricalEventPage(
+  chatId: string,
+  filter: SQL | undefined,
+  before?: number,
+) {
+  return db
+    .select({ createdAt: chatEvent.createdAt, event: chatEvent.event, eventIndex: chatEvent.eventIndex })
+    .from(chatEvent)
+    .where(and(
+      eq(chatEvent.chatId, chatId),
+      filter,
+      before === undefined ? undefined : lt(chatEvent.eventIndex, before),
+    ))
+    .orderBy(desc(chatEvent.eventIndex))
+    .limit(CHAT_EVENT_HISTORY_PAGE_SIZE + 1);
 }
 
 export async function markChatPendingMessage({
@@ -208,6 +293,8 @@ export async function markChatPendingMessage({
     .where(and(eq(chat.id, chatId), eq(chat.userId, userId)))
     .returning({
       id: chat.id,
+      projectId: chat.projectId,
+      repository: chat.repository,
       title: chat.title,
       updatedAt: chat.updatedAt,
     });
@@ -218,6 +305,9 @@ export async function markChatPendingMessage({
 
   return {
     id: row.id,
+    projectId: row.projectId,
+    projectName: row.projectId ? await getProjectName(row.projectId, userId) : null,
+    repository: row.repository,
     title: row.title,
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -298,8 +388,16 @@ export async function updateUserModelPreferences(
 
 export async function getChatRuntimeContext(chatId: string, userId: string) {
   const [row] = await db
-    .select({ id: chat.id, modelId: chat.modelId, userId: chat.userId })
+    .select({
+      id: chat.id,
+      modelId: chat.modelId,
+      projectInstructions: project.instructions,
+      projectName: project.name,
+      repository: chat.repository,
+      userId: chat.userId,
+    })
     .from(chat)
+    .leftJoin(project, eq(chat.projectId, project.id))
     .where(and(eq(chat.id, chatId), eq(chat.userId, userId)))
     .limit(1);
   if (!row) return null;
@@ -466,6 +564,7 @@ export async function skipChatAuthorization({
     .update(chat)
     .set({
       eveSession: session ?? null,
+      nextEventIndex: eventIndex + events.length,
       pendingUserMessage: null,
       pendingUserMessageCreatedAt: null,
       updatedAt: new Date(),
@@ -473,6 +572,8 @@ export async function skipChatAuthorization({
     .where(and(eq(chat.id, chatId), eq(chat.userId, userId)))
     .returning({
       id: chat.id,
+      projectId: chat.projectId,
+      repository: chat.repository,
       title: chat.title,
       updatedAt: chat.updatedAt,
     });
@@ -484,12 +585,24 @@ export async function skipChatAuthorization({
   return {
     chat: {
       id: row.id,
+      projectId: row.projectId,
+      projectName: row.projectId ? await getProjectName(row.projectId, userId) : null,
+      repository: row.repository,
       title: row.title,
       updatedAt: row.updatedAt.toISOString(),
     },
     eventCount: events.length,
     eventIndex,
   };
+}
+
+async function getProjectName(projectId: string, ownerId: string) {
+  const [row] = await db
+    .select({ name: project.name })
+    .from(project)
+    .where(and(eq(project.id, projectId), eq(project.ownerId, ownerId)))
+    .limit(1);
+  return row?.name ?? null;
 }
 
 export async function saveChatSessionState({
@@ -609,6 +722,7 @@ export async function saveChatSnapshot({
     .update(chat)
     .set({
       eveSession: session ?? null,
+      nextEventIndex: events.length,
       pendingUserMessage: null,
       pendingUserMessageCreatedAt: null,
       updatedAt: new Date(),

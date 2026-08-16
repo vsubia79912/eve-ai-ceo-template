@@ -43,6 +43,13 @@
       "when": 1786487421857,
       "tag": "0005_skinny_alex_wilder",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786908390377,
+      "tag": "0006_sturdy_tana_nile",
+      "breakpoints": true
     }
   ]
 }

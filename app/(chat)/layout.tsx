@@ -2,6 +2,7 @@ import { Suspense, type ReactNode } from "react";
 import { AgentChatBootstrapSync } from "@/app/_components/agent-chat-bootstrap-sync";
 import { AgentChatShell } from "@/app/_components/agent-chat-shell";
 import { listChatsPageByUser } from "@/lib/db/queries";
+import { listProjects } from "@/lib/company/projects";
 import { getServerViewer } from "@/lib/session";
 import { getInitialSetupStatus, getSetupStatus } from "@/lib/setup";
 
@@ -12,6 +13,7 @@ export default function ChatLayout({ children }: { readonly children: ReactNode 
     <AgentChatShell
       initialChats={[]}
       initialNextCursor={null}
+      initialProjects={[]}
       setupStatus={setupStatus}
       viewer={null}
     >
@@ -29,15 +31,16 @@ async function ResolvedChatBootstrap() {
   const setupStatus = await getSetupStatus();
   const viewer = await getServerViewer(setupStatus);
   const appReady = setupStatus.appReady;
-  const initialChatsPage =
+  const [initialChatsPage, projects] =
     viewer && appReady && setupStatus.storageMode === "database"
-      ? await listChatsPageByUser(viewer.id)
-      : { items: [], nextCursor: null };
+      ? await Promise.all([listChatsPageByUser(viewer.id), listProjects(viewer.id)])
+      : [{ items: [], nextCursor: null }, []];
 
   return (
     <AgentChatBootstrapSync
       chats={initialChatsPage.items}
       nextCursor={initialChatsPage.nextCursor}
+      projects={projects}
       setupStatus={setupStatus}
       viewer={viewer}
     />

@@ -9,6 +9,11 @@ import {
 } from "@/app/_components/agent-chat";
 import { useChatShell } from "@/app/_components/chat-shell-context";
 import { ChatComposer } from "@/components/chat/composer";
+import {
+  ChatContextControls,
+  NEW_CHAT_PROJECT_KEY,
+  NEW_CHAT_REPOSITORY_KEY,
+} from "@/components/chat/chat-context-controls";
 import { ModelSelect } from "@/components/chat/model-select";
 import { TemplateFooterLinks } from "@/components/chat/template-footer-links";
 import { getChatMessageLengthError } from "@/lib/chat/limits";
@@ -42,6 +47,8 @@ export function HomeChatPage() {
   const [submitting, setSubmitting] = useState(false);
   const [models, setModels] = useState<GatewayModel[]>([]);
   const [modelId, setModelId] = useState(DEFAULT_MODEL_SETTINGS.ceo);
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [repository, setRepository] = useState<string | null>(null);
   const [clientError, setClientError] = useState<string | null>(null);
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const submittingRef = useRef(false);
@@ -156,12 +163,19 @@ export function HomeChatPage() {
         return;
       }
 
+      if (projectId) window.sessionStorage.setItem(NEW_CHAT_PROJECT_KEY, projectId);
+      else window.sessionStorage.removeItem(NEW_CHAT_PROJECT_KEY);
+      if (repository) window.sessionStorage.setItem(NEW_CHAT_REPOSITORY_KEY, repository);
+      else window.sessionStorage.removeItem(NEW_CHAT_REPOSITORY_KEY);
+
       setActiveChatId(provisionalChatId);
       router.push(`/chat/${provisionalChatId}`, { scroll: false });
     },
     [
       requestSignIn,
       router,
+      projectId,
+      repository,
       setActiveChatId,
       setupReady,
       setupStatus,
@@ -211,6 +225,18 @@ export function HomeChatPage() {
                   value={modelId}
                 />
               </div>
+            ) : null}
+            {viewer ? (
+              <ChatContextControls
+                disabled={submitting}
+                onProjectChange={(nextProjectId, defaultRepository) => {
+                  setProjectId(nextProjectId);
+                  if (!repository) setRepository(defaultRepository);
+                }}
+                onRepositoryChange={setRepository}
+                projectId={projectId}
+                repository={repository}
+              />
             ) : null}
             <ChatComposer
               autoFocus

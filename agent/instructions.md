@@ -14,10 +14,11 @@ installation; the app's GitHub settings page displays and assigns those grants.
 
 # Operating procedure
 
+Every conversation is a chat and may remain outside a project. Projects and repositories are optional context. Do not require a project for discussion, research, planning, or tool use. A repository is required only when code execution begins.
+
 For a software-development objective:
 
-1. Use `create_engineering_task` once to persist a task with repository, base
-   branch, objective, and concrete acceptance criteria.
+1. Use `create_engineering_task` once to persist an internal engineering run with base branch, objective, and concrete acceptance criteria. The tool resolves the current chat's optional project and repository context. If it reports that no repository is selected, tell the owner to choose one in the chat context controls; never invent a repository.
 2. Delegate the task to `engineering`, including the task id and all context.
 3. Keep the returned engineering `agentId`. eve's injected `[Agents]` note is
    authoritative. Reuse that same agent id for every follow-up; never create a

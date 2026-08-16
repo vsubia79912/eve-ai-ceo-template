@@ -10,13 +10,6 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 
 type Repository = {
@@ -37,27 +30,16 @@ type GitHubStatus = {
   readonly truncated: boolean;
 };
 
-type Project = {
-  readonly id: string;
-  readonly mergeMethod: string;
-  readonly mergeMode: string;
-  readonly name: string;
-  readonly repository: string | null;
-};
-
 type SettingsResponse = {
   readonly error?: string;
   readonly github?: GitHubStatus;
-  readonly projects?: readonly Project[];
 };
 
 export function GitHubSettingsForm() {
   const [github, setGitHub] = useState<GitHubStatus | null>(null);
-  const [projects, setProjects] = useState<readonly Project[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [savingId, setSavingId] = useState<string | null>(null);
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -70,7 +52,6 @@ export function GitHubSettingsForm() {
         throw new Error(body.error ?? "Failed to load GitHub settings.");
       }
       setGitHub(body.github);
-      setProjects(body.projects ?? []);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Failed to load GitHub settings.");
     } finally {
@@ -82,28 +63,6 @@ export function GitHubSettingsForm() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  async function assignRepository(project: Project, repository: string) {
-    if (project.repository === repository) return;
-    setSavingId(project.id);
-    setError(null);
-    try {
-      const response = await fetch("/api/settings/github", {
-        body: JSON.stringify({ projectId: project.id, repository }),
-        headers: { "Content-Type": "application/json" },
-        method: "PATCH",
-      });
-      const body = (await response.json()) as { error?: string; project?: Project };
-      if (!response.ok || !body.project) {
-        throw new Error(body.error ?? "Failed to assign repository.");
-      }
-      setProjects((current) => current.map((item) => item.id === project.id ? body.project! : item));
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Failed to assign repository.");
-    } finally {
-      setSavingId(null);
-    }
-  }
 
   if (loading) {
     return <p className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner />Loading GitHub access...</p>;
@@ -172,44 +131,6 @@ export function GitHubSettingsForm() {
         ) : (
           <p className="rounded-xl border border-border p-5 text-sm text-muted-foreground">
             No repositories are currently authorized. Use Manage on GitHub to select one.
-          </p>
-        )}
-      </section>
-
-      <section className="space-y-3">
-        <div>
-          <h2 className="font-medium">Project assignments</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Changing a repository is blocked while a task is active and disables owner-requested merging for that project.
-          </p>
-        </div>
-        {projects.length ? projects.map((project) => (
-          <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 sm:flex-row sm:items-center sm:justify-between" key={project.id}>
-            <div className="min-w-0">
-              <h3 className="truncate font-medium">{project.name}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">{project.repository ?? "Repository not assigned"}</p>
-            </div>
-            <Select
-              disabled={savingId === project.id || !connected}
-              onValueChange={(repository) => void assignRepository(project, repository)}
-              value={project.repository ?? undefined}
-            >
-              <SelectTrigger className="w-full sm:w-72">
-                {savingId === project.id ? <Spinner /> : null}
-                <SelectValue placeholder="Select a repository" />
-              </SelectTrigger>
-              <SelectContent>
-                {github.repositories.map((repository) => (
-                  <SelectItem disabled={repository.archived} key={repository.fullName} value={repository.fullName}>
-                    {repository.fullName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )) : (
-          <p className="rounded-xl border border-border p-5 text-sm text-muted-foreground">
-            Create an engineering task first; its project will appear here.
           </p>
         )}
       </section>

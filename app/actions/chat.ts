@@ -16,6 +16,7 @@ import { assertChatMessageLength } from "@/lib/chat/limits";
 import { RateLimitError, enforceRateLimit } from "@/lib/rate-limit";
 import { getServerViewer } from "@/lib/session";
 import { getSetupStatus } from "@/lib/setup";
+import { assertGitHubRepositoryAccess } from "@/lib/company/github-access";
 
 const SEND_LIMIT = 25;
 const SEND_WINDOW_SECONDS = 60 * 60;
@@ -23,6 +24,8 @@ const SEND_WINDOW_SECONDS = 60 * 60;
 export async function createChatAction(input?: {
   readonly modelId?: string;
   readonly pendingUserMessage?: string;
+  readonly projectId?: string | null;
+  readonly repository?: string | null;
 }) {
   const viewer = await requireViewer();
 
@@ -37,9 +40,15 @@ export async function createChatAction(input?: {
     windowSeconds: SEND_WINDOW_SECONDS,
   });
 
+  const repository = input?.repository?.trim()
+    ? await assertGitHubRepositoryAccess(input.repository)
+    : null;
+
   return createChat(viewer.id, {
     modelId: input?.modelId,
     pendingUserMessage: input?.pendingUserMessage,
+    projectId: input?.projectId,
+    repository,
   });
 }
 

@@ -36,25 +36,28 @@ import {
   deleteClientChat,
   listClientChats,
 } from "@/lib/chat/persistence-client";
-import type { ChatListItem, SetupStatus, Viewer } from "@/lib/chat/types";
+import type { ChatListItem, ProjectSummary, SetupStatus, Viewer } from "@/lib/chat/types";
 import { cn } from "@/lib/utils";
 
 export function AgentChatShell({
   children,
   initialChats,
   initialNextCursor,
+  initialProjects,
   setupStatus,
   viewer,
 }: {
   readonly children: ReactNode;
   readonly initialChats: readonly ChatListItem[];
   readonly initialNextCursor: string | null;
+  readonly initialProjects: readonly ProjectSummary[];
   readonly setupStatus: SetupStatus;
   readonly viewer: Viewer | null;
 }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const [history, setHistory] = useState<ChatListItem[]>([...initialChats]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([...initialProjects]);
   const [nextCursor, setNextCursor] = useState(initialNextCursor);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -119,9 +122,13 @@ export function AgentChatShell({
 
       return [
         {
+          ...current,
           id: chat.id,
           title: chat.title || current?.title || "New chat",
           updatedAt: chat.updatedAt,
+          projectId: chat.projectId,
+          projectName: chat.projectName,
+          repository: chat.repository,
         },
         ...items.filter((item) => item.id !== chat.id),
       ];
@@ -137,6 +144,18 @@ export function AgentChatShell({
   const removeChat = useCallback((chatId: string) => {
     setHistory((items) => items.filter((item) => item.id !== chatId));
   }, []);
+
+  const updateChatContextInHistory = useCallback((updated: ChatListItem) => {
+    setHistory((items) => items.map((item) => item.id === updated.id ? updated : item));
+  }, []);
+
+  const refreshProjects = useCallback(async () => {
+    if (setupStatusState.storageMode !== "database") return;
+    const response = await fetch("/api/projects", { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json() as { readonly projects?: ProjectSummary[] };
+    setProjects(data.projects ?? []);
+  }, [setupStatusState.storageMode]);
 
   const startNewChat = useCallback(() => {
     activeChatIdRef.current = null;
@@ -211,16 +230,19 @@ export function AgentChatShell({
     ({
       chats,
       nextCursor: incomingNextCursor,
+      projects: incomingProjects,
       setupStatus: incomingSetupStatus,
       viewer: incomingViewer,
     }: {
       readonly chats: readonly ChatListItem[];
       readonly nextCursor: string | null;
+      readonly projects: readonly ProjectSummary[];
       readonly setupStatus: SetupStatus;
       readonly viewer: Viewer | null;
     }) => {
       setSetupStatusState(incomingSetupStatus);
       setViewerState(incomingViewer);
+      setProjects([...incomingProjects]);
       const usesBrowserStorage = incomingSetupStatus.storageMode === "browser";
       const nextChats =
         incomingViewer && usesBrowserStorage
@@ -258,12 +280,15 @@ export function AgentChatShell({
       activeChatId,
       desktopSidebarOpen,
       enabledConnections,
+      projects,
+      refreshProjects,
       removeChat,
       requestSignIn,
       setActiveChatId,
       setConnectionEnabled,
       setupStatus: setupStatusState,
       touchChat,
+      updateChatContextInHistory,
       updateChatTitle,
       viewer: viewerState,
     }),
@@ -271,11 +296,14 @@ export function AgentChatShell({
       activeChatId,
       desktopSidebarOpen,
       enabledConnections,
+      projects,
+      refreshProjects,
       removeChat,
       requestSignIn,
       setConnectionEnabled,
       setupStatusState,
       touchChat,
+      updateChatContextInHistory,
       updateChatTitle,
       viewerState,
     ],
@@ -285,6 +313,7 @@ export function AgentChatShell({
     <ChatSidebar
       activeChatId={activeChatId}
       chats={history}
+      projects={projects}
       hasMoreChats={Boolean(nextCursor)}
       isLoadingChats={historyLoading}
       isLoadingMore={loadingMore}
@@ -380,6 +409,7 @@ export function AgentChatShell({
             <ChatSidebar
               activeChatId={activeChatId}
               chats={history}
+              projects={projects}
               className="w-[84vw] max-w-80"
               hasMoreChats={Boolean(nextCursor)}
               isLoadingChats={historyLoading}

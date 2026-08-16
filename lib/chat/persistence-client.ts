@@ -50,7 +50,12 @@ export async function getClientChat(storageMode: StorageMode, chatId: string) {
 
 export async function createClientChat(
   storageMode: StorageMode,
-  input?: { readonly modelId?: string; readonly pendingUserMessage?: string },
+  input?: {
+    readonly modelId?: string;
+    readonly pendingUserMessage?: string;
+    readonly projectId?: string | null;
+    readonly repository?: string | null;
+  },
 ) {
   return storageMode === "browser"
     ? createLocalChat(input?.pendingUserMessage, input?.modelId)

@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, type ReactNode } from "react";
-import type { ChatListItem, SetupStatus, Viewer } from "@/lib/chat/types";
+import type { ChatListItem, ProjectSummary, SetupStatus, Viewer } from "@/lib/chat/types";
 
 export type EnabledConnections = {
   readonly linear: boolean;
@@ -14,6 +14,8 @@ type ChatShellContextValue = {
   readonly desktopSidebarOpen: boolean;
   readonly enabledConnections: EnabledConnections;
   readonly removeChat: (chatId: string) => void;
+  readonly projects: readonly ProjectSummary[];
+  readonly refreshProjects: () => Promise<void>;
   readonly requestSignIn: (draft?: string) => void;
   readonly setActiveChatId: (chatId: string | null) => void;
   readonly setConnectionEnabled: (
@@ -21,6 +23,7 @@ type ChatShellContextValue = {
     enabled: boolean,
   ) => void;
   readonly setupStatus: SetupStatus;
+  readonly updateChatContextInHistory: (chat: ChatListItem) => void;
   readonly touchChat: (chat: ChatListItem) => void;
   readonly updateChatTitle: (chatId: string, title: string) => void;
   readonly viewer: Viewer | null;

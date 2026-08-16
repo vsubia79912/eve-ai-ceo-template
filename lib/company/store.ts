@@ -11,13 +11,13 @@ import {
 } from "@/lib/db/schema";
 import { requireCompanyDatabase } from "@/lib/company/config";
 import { createWorkingBranch } from "@/lib/company/repository";
-import { projectRepositoryAssignmentBlocker } from "@/lib/company/policies";
 
 type TaskPatch = Partial<Omit<typeof task.$inferInsert, "id" | "projectId" | "createdAt">>;
 
 export async function createCompanyTask(input: {
   readonly ownerId: string;
-  readonly projectName: string;
+  readonly chatId?: string | null;
+  readonly projectId?: string | null;
   readonly title: string;
   readonly description: string;
   readonly acceptanceCriteria: readonly string[];
@@ -33,31 +33,14 @@ export async function createCompanyTask(input: {
   };
 }) {
   requireCompanyDatabase();
-  let [projectRow] = await db
-    .select()
-    .from(project)
-    .where(and(eq(project.ownerId, input.ownerId), eq(project.name, input.projectName)))
-    .limit(1);
-
-  if (!projectRow) {
-    [projectRow] = await db
-      .insert(project)
-      .values({
-        id: randomUUID(),
-        name: input.projectName,
-        ownerId: input.ownerId,
-        repository: input.repository,
-      })
-      .returning();
-  } else {
-    const blocker = projectRepositoryAssignmentBlocker({
-      assignedRepository: projectRow.repository,
-      projectName: input.projectName,
-      requestedRepository: input.repository,
-    });
-    if (blocker) throw new Error(blocker);
+  if (input.projectId) {
+    const [ownedProject] = await db
+      .select({ id: project.id })
+      .from(project)
+      .where(and(eq(project.id, input.projectId), eq(project.ownerId, input.ownerId)))
+      .limit(1);
+    if (!ownedProject) throw new Error("Project was not found for the authenticated owner.");
   }
-  if (!projectRow) throw new Error("Failed to create project.");
 
   const taskId = randomUUID();
   const [created] = await db
@@ -65,12 +48,13 @@ export async function createCompanyTask(input: {
     .values({
       acceptanceCriteria: [...input.acceptanceCriteria],
       baseBranch: input.baseBranch,
+      chatId: input.chatId ?? null,
       description: input.description,
       effectiveModels: input.effectiveModels,
       eveSessionId: input.eveSessionId,
       id: taskId,
       priority: input.priority ?? 3,
-      projectId: projectRow.id,
+      projectId: input.projectId ?? null,
       repository: input.repository,
       status: "ASSIGNED",
       title: input.title,
@@ -195,6 +179,8 @@ export function taskPublicView(row: CompanyTask) {
     status: row.status,
     currentStage: row.currentStage,
     repository: row.repository,
+    chatId: row.chatId,
+    projectId: row.projectId,
     baseBranch: row.baseBranch,
     workingBranch: row.workingBranch,
     engineeringAgentId: row.engineeringAgentId,

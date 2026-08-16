@@ -69,6 +69,8 @@ export const chat = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    projectId: text("project_id").references(() => project.id, { onDelete: "set null" }),
+    repository: text("repository"),
     title: text("title").notNull().default("New chat"),
     modelId: text("model_id").notNull().default("openai/gpt-5.4-mini"),
     nextEventIndex: integer("next_event_index").notNull().default(0),
@@ -81,6 +83,7 @@ export const chat = pgTable(
   (table) => [
     index("idx_chat_user_updated").on(table.userId, table.updatedAt),
     index("idx_chat_user_created").on(table.userId, table.createdAt),
+    index("idx_chat_project_updated").on(table.projectId, table.updatedAt),
   ],
 );
 
@@ -135,6 +138,8 @@ export const project = pgTable(
     id: text("id").primaryKey(),
     ownerId: text("owner_id").notNull(),
     name: text("name").notNull(),
+    description: text("description"),
+    instructions: text("instructions"),
     repository: text("repository"),
     mergeMode: text("merge_mode").notNull().default("disabled"),
     mergeMethod: text("merge_method").notNull().default("squash"),
@@ -148,9 +153,8 @@ export const task = pgTable(
   "task",
   {
     id: text("id").primaryKey(),
-    projectId: text("project_id")
-      .notNull()
-      .references(() => project.id, { onDelete: "cascade" }),
+    projectId: text("project_id").references(() => project.id, { onDelete: "set null" }),
+    chatId: text("chat_id").references(() => chat.id, { onDelete: "set null" }),
     parentTaskId: text("parent_task_id"),
     title: text("title").notNull(),
     description: text("description").notNull(),
@@ -191,6 +195,7 @@ export const task = pgTable(
   },
   (table) => [
     index("idx_task_project_updated").on(table.projectId, table.updatedAt),
+    index("idx_task_chat_updated").on(table.chatId, table.updatedAt),
     index("idx_task_status_updated").on(table.status, table.updatedAt),
   ],
 );

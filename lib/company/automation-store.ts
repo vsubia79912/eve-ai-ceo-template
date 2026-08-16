@@ -94,7 +94,6 @@ export async function findTrackedPullRequest(input: {
     .where(
       and(
         eq(project.ownerId, input.ownerId),
-        eq(project.repository, input.repository),
         eq(task.repository, input.repository),
         eq(task.prNumber, input.prNumber),
       ),

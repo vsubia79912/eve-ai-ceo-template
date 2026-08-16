@@ -12,6 +12,9 @@ export type StorageMode = "browser" | "database";
 
 export type ChatListItem = {
   readonly id: string;
+  readonly projectId: string | null;
+  readonly projectName: string | null;
+  readonly repository: string | null;
   readonly title: string;
   readonly updatedAt: string;
 };
@@ -23,11 +26,26 @@ export type ChatListPage = {
 
 export type ActiveChat = {
   readonly events: readonly MessageStreamEvent[];
+  readonly hasOlderHistory: boolean;
+  readonly historyStartIndex: number | null;
   readonly id: string;
   readonly modelId: string;
+  readonly nextEventIndex: number;
   readonly pendingUserMessage: string | null;
+  readonly projectId: string | null;
+  readonly projectName: string | null;
+  readonly repository: string | null;
   readonly session: ClientSessionState | undefined;
   readonly title: string;
+};
+
+export type ProjectSummary = {
+  readonly description: string | null;
+  readonly id: string;
+  readonly instructions: string | null;
+  readonly name: string;
+  readonly repository: string | null;
+  readonly updatedAt: string;
 };
 
 export type ModelRole = "ceo" | "engineering" | "reviewer" | "codex";

@@ -20,7 +20,7 @@ export default async function TasksPage() {
     <main className="mx-auto w-full max-w-5xl overflow-y-auto px-6 py-10">
       <div className="mb-8">
         <p className="mb-2 text-xs font-medium tracking-widest text-muted-foreground uppercase">Autonomous company</p>
-        <h1 className="text-2xl font-semibold">Engineering tasks</h1>
+        <h1 className="text-2xl font-semibold">Activity</h1>
         <p className="mt-2 text-sm text-muted-foreground">Operational state lives here; detailed model traces remain in eve and Vercel Agent Runs.</p>
       </div>
       {tasks.length === 0 ? (
@@ -52,5 +52,5 @@ export default async function TasksPage() {
 }
 
 function TasksEmpty({ message }: { readonly message: string }) {
-  return <main className="mx-auto w-full max-w-5xl px-6 py-10"><h1 className="text-2xl font-semibold">Engineering tasks</h1><p className="mt-4 text-sm text-muted-foreground">{message}</p></main>;
+  return <main className="mx-auto w-full max-w-5xl px-6 py-10"><h1 className="text-2xl font-semibold">Activity</h1><p className="mt-4 text-sm text-muted-foreground">{message}</p></main>;
 }
