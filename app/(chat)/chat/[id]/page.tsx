@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 import { AgentChatRouteSync } from "@/app/_components/agent-chat-route-sync";
 import { SessionChatPage } from "@/app/_components/session-chat-page";
 import { isProvisionalChatId } from "@/lib/chat/provisional-chat";
@@ -32,6 +33,7 @@ async function ExistingChat({
     return <AgentChatRouteSync activeChat={null} chatId={chatId} />;
   }
 
+  await connection();
   const setupStatus = await getSetupStatus();
   const viewer = await getServerViewer(setupStatus);
   const appReady = setupStatus.appReady;

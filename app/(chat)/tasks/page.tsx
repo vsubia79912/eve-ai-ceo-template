@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { connection } from "next/server";
 import { Badge } from "@/components/ui/badge";
 import { listTasks } from "@/lib/company/store";
 import { getSetupStatus } from "@/lib/setup";
@@ -6,6 +7,7 @@ import { getSetupStatus } from "@/lib/setup";
 export const instant = false;
 
 export default async function TasksPage() {
+  await connection();
   const setup = await getSetupStatus();
   if (!setup.databaseConfigured) {
     return <TasksEmpty message="Configure DATABASE_URL and run migrations to enable durable tasks." />;
