@@ -32,6 +32,7 @@ import {
   ChatConversationContent,
   ChatScrollButton,
 } from "@/components/chat/conversation";
+import { AgentActivityStream } from "@/components/chat/activity-stream";
 import { IntegrationsMenu } from "@/components/chat/integrations-menu";
 import { AgentMessage } from "@/components/chat/message";
 import { Button } from "@/components/ui/button";
@@ -1649,6 +1650,12 @@ export function AgentChatSession({
                     onSkip={handleSkipAuthorization}
                   />
                 ))}
+                <AgentActivityStream
+                  events={displayEvents}
+                  rootSessionId={
+                    persistedSessionRef.current?.state?.sessionId ?? activeChat?.session?.sessionId
+                  }
+                />
                 {thinkingPresence.shouldRender ? (
                   <ThinkingMessage isVisible={thinkingPresence.isVisible} />
                 ) : null}
