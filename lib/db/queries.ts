@@ -4,6 +4,7 @@ import type { ClientSessionState, MessageStreamEvent } from "eve/client";
 import { isChatTurnTerminalEvent } from "@/lib/chat/events";
 import type { ActiveChat, ChatListItem, ChatListPage, UserModelPreferences } from "@/lib/chat/types";
 import { createFallbackTitle, DEFAULT_CHAT_TITLE } from "@/lib/chat/title";
+import { buildEveSessionJson } from "@/lib/db/chat-event-persistence";
 import { chat, chatEvent, project, userModelSettings } from "@/lib/db/schema";
 import { db } from "@/lib/db/client";
 import {
@@ -453,10 +454,10 @@ export async function persistServerChatEvent(input: {
           case when ${isTerminal} then null else "pending_user_message" end,
         "pending_user_message_created_at" =
           case when ${isTerminal} then null else "pending_user_message_created_at" end,
-        "eve_session" = jsonb_build_object(
-          'sessionId', ${input.sessionId},
-          'streamIndex', "next_event_index" + 1
-        ),
+        "eve_session" = ${buildEveSessionJson(
+          input.sessionId,
+          sql`"next_event_index" + 1`,
+        )},
         "updated_at" = now()
       where
         "id" = ${input.chatId}
