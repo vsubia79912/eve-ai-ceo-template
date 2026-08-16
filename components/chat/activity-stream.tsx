@@ -24,11 +24,13 @@ const TRANSCRIPT_MAX_CHARS = 4_000;
 const STREAM_OPEN_RETRYABLE_STATUS = new Set([404, 409, 425, 500, 502, 503, 504]);
 
 type ActivitySession = {
+  readonly callId?: string;
   readonly depth: number;
   readonly events: readonly MessageStreamEvent[];
   readonly id: string;
   readonly name: string;
   readonly parentId?: string;
+  readonly settled?: boolean;
   readonly streamError?: string;
 };
 
@@ -64,6 +66,7 @@ export function AgentActivityStream({
       const existing = current.get(sessionId);
       const next = new Map(current);
       next.set(sessionId, {
+        callId: called.data.callId,
         depth: existing?.depth ?? parentDepth + 1,
         events: existing?.events ?? [],
         id: sessionId,
@@ -150,7 +153,19 @@ export function AgentActivityStream({
       id: rootSessionId ?? "current-ceo-session",
       name: "ceo",
     };
-    return [root, ...childSessions.values()];
+    const allSessions = [root, ...childSessions.values()];
+    const sessionsById = new Map(allSessions.map((session) => [session.id, session]));
+    return allSessions.map((session) => {
+      if (!session.callId || !session.parentId) return session;
+      const parent = sessionsById.get(session.parentId);
+      const settled = parent?.events.some((event) =>
+        (event.type === "subagent.completed" && event.data.callId === session.callId) ||
+        (event.type === "action.result" &&
+          event.data.result.kind === "subagent-result" &&
+          event.data.result.callId === session.callId),
+      );
+      return settled ? { ...session, settled: true } : session;
+    });
   }, [childSessions, events, rootSessionId]);
   const rows = useMemo(
     () => buildActivityRows(sessions).slice(-MAX_VISIBLE_EVENTS),
@@ -294,6 +309,7 @@ function SessionChip({ session }: { readonly session: ActivitySession }) {
 
 function getActivityStatus(session: ActivitySession): ActivityStatus {
   if (session.streamError) return "failed";
+  if (session.settled) return "completed";
   const latest = session.events.at(-1);
   if (latest?.type === "session.failed") return "failed";
   if (latest?.type === "session.completed") return "completed";
